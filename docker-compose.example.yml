@@ -1,0 +1,24 @@
+# Minimal deployment. HomeKit needs mDNS, so network_mode: host is REQUIRED --
+# bridge networking will not work.
+services:
+  appletv-siri-voice:
+    container_name: appletv-siri-voice
+    # Context is the repo root so the licence files land in the image.
+    build:
+      context: .
+      dockerfile: bridge/Dockerfile
+    # or: image: ghcr.io/marcusadolfsson/appletv-siri-voice:latest
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      # Change this before pairing.
+      - HAP_PINCODE=031-45-154
+      # Only if the wrong interface gets advertised (a Tailscale/CGNAT address
+      # is the usual culprit). Interface NAME, not an address.
+      # - HAP_BIND=eth0
+      # Only if Home Assistant runs on a different host -- and firewall it.
+      # - CTRL_BIND=0.0.0.0
+    volumes:
+      # Pairing state. Losing this drops the Home app pairing and every Apple TV
+      # target, so it must outlive the container.
+      - ./appletv-siri-voice-data:/data/persist

@@ -1,0 +1,4 @@
+node_modules/
+appletv-siri-voice-data/
+__pycache__/
+*.pyc

@@ -1,0 +1,40 @@
+press:
+  name: Press button
+  description: >-
+    Send a remote button to the active Apple TV over HomeKit. This is
+    independent of pyatv, so it keeps working when the Apple TV integration's
+    connection is asleep or wedged.
+  fields:
+    button:
+      name: Button
+      required: true
+      example: TV_HOME
+      selector:
+        select:
+          options: [MENU, PLAY_PAUSE, TV_HOME, SELECT, ARROW_UP, ARROW_RIGHT,
+                    ARROW_DOWN, ARROW_LEFT, VOLUME_UP, VOLUME_DOWN, SIRI, POWER, GENERIC]
+    target:
+      name: Target
+      description: Apple TV identifier. Defaults to the currently active one.
+      example: 207551296
+      selector:
+        number: {mode: box, min: 0, max: 4294967295}
+
+set_target:
+  name: Set target
+  description: Choose which Apple TV subsequent buttons and voice go to.
+  fields:
+    target:
+      name: Target
+      required: true
+      example: 207551296
+      selector:
+        number: {mode: box, min: 0, max: 4294967295}
+
+recover:
+  name: Recover voice
+  description: >-
+    Force the Apple TV to reopen its HomeKit data stream, which is what carries
+    Siri audio. The bridge does this automatically at startup and when it
+    notices the stream is gone; this is the manual override. Takes about a
+    minute, during which buttons briefly drop out twice.

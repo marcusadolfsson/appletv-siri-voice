@@ -1,0 +1,10 @@
+{
+  "domain": "appletv_siri",
+  "name": "Apple TV Siri Voice",
+  "documentation": "https://github.com/marcusadolfsson/appletv-siri-voice",
+  "issue_tracker": "https://github.com/marcusadolfsson/appletv-siri-voice/issues",
+  "codeowners": ["@marcusadolfsson"],
+  "dependencies": ["http", "assist_pipeline"],
+  "iot_class": "local_push",
+  "version": "1.0.0"
+}
