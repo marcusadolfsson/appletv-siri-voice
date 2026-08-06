@@ -321,12 +321,26 @@ replaced or re-paired.
 An unrecognised `source` falls back to the default target and logs a warning
 naming the ones it knows, so a typo doesn't silently talk to the wrong room.
 
-**One utterance at a time.** HomeKit supports a single Siri audio session, and
-the SIRI button and active target are both single-valued, so overlapping
-utterances cannot be delivered however this is written. A second request waits
-briefly for the first to finish and then gets a clean `409` — rather than
-interleaving its audio into the first one's stream, which is what a naive
-implementation does.
+**One utterance at a time — for now.** A second request waits briefly for the
+first to finish and then gets a clean `409`, rather than interleaving its audio
+into the first one's stream.
+
+This is a limitation of the library, **not of HomeKit**. The spec explicitly
+provides for concurrency (§8.39): *"If an accessory can support control of
+multiple concurrent Apple TVs at the same time … it must expose multiple
+instances of this service."* HAP-NodeJS creates exactly one Target Control
+service and holds one audio session, so one accessory currently serializes.
+
+Worth knowing: the **data streams are already per-Apple-TV** — a bridge serving
+two of them holds two of them open concurrently. Only the controller layer
+serializes, so lifting this means multiple Target Control service instances in
+one bridge, not multiple bridges.
+
+If you genuinely need simultaneous conversations today, run a second container
+with its own `HAP_USERNAME`, `HAP_PORT`, `HAP_UUID_SEED` and storage volume, and
+pair it separately — you get one accessory (and one setup code) per Apple TV.
+In practice the 4-second wait absorbs near-simultaneous use, so this is worth
+measuring before building.
 
 ## The one quirk worth understanding
 
@@ -407,8 +421,8 @@ the bridge directly.
 - **The Apple TV must be awake** to respond to voice.
 - Target *names* come back garbled (a TLV parsing quirk in hap-nodejs); the
   identifiers are correct, which is what matters.
-- One utterance at a time, across all Apple TVs — a HomeKit limitation, not an
-  implementation choice (see [Multiple microphones](#multiple-microphones)).
+- One utterance at a time, across all Apple TVs — a HAP-NodeJS limitation rather
+  than a HomeKit one (see [Multiple microphones](#multiple-microphones)).
 - Not affiliated with or endorsed by Apple. "Siri", "Apple TV" and "HomeKit" are
   trademarks of Apple Inc.
 
