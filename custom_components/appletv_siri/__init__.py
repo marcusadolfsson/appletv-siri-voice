@@ -35,6 +35,7 @@ from homeassistant.helpers.discovery import async_load_platform
 from homeassistant.helpers.typing import ConfigType
 
 from .bridge import Bridge, BridgeError, BridgeUnavailable
+from .coordinator import BridgeCoordinator
 from .const import (
     ATTR_BUTTON,
     ATTR_TARGET,
@@ -108,7 +109,14 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     bridge = Bridge(
         async_get_clientsession(hass), conf.get(CONF_BRIDGE_URL, DEFAULT_BRIDGE_URL)
     )
-    hass.data[DOMAIN] = {"bridge": bridge, "conf": conf}
+    coordinator = BridgeCoordinator(hass, bridge)
+    # Don't fail setup if the bridge is still starting — the entities simply
+    # report unavailable until it answers.
+    # async_refresh, not async_config_entry_first_refresh: setup must not fail
+    # just because the bridge is still starting. Entities report unavailable
+    # until it answers, and the coordinator retries on its own schedule.
+    await coordinator.async_refresh()
+    hass.data[DOMAIN] = {"bridge": bridge, "conf": conf, "coordinator": coordinator}
 
     hass.http.register_view(SiriRemoteAudioView(hass, bridge, conf))
 
@@ -152,7 +160,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     # Entities, so the integration is usable from the UI rather than being
     # service-calls-only: a target selector, a box to talk to Siri, and the
     # handful of remote keys worth one tap.
-    for platform in ("select", "text", "button"):
+    for platform in ("select", "text", "button", "sensor", "binary_sensor"):
         hass.async_create_task(async_load_platform(hass, platform, DOMAIN, {}, config))
     return True
 

@@ -14,20 +14,19 @@ the options unambiguous.
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
 from typing import Any
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .bridge import Bridge, BridgeError
+from .bridge import Bridge
 from .const import DOMAIN
+from .coordinator import BridgeCoordinator
 
 _LOGGER = logging.getLogger(__name__)
-
-SCAN_INTERVAL = timedelta(seconds=60)
 
 
 async def async_setup_platform(
@@ -42,10 +41,10 @@ async def async_setup_platform(
     data = hass.data.get(DOMAIN)
     if not data:
         return
-    async_add_entities([AppleTvTargetSelect(data["bridge"])], update_before_add=True)
+    async_add_entities([AppleTvTargetSelect(data["coordinator"], data["bridge"])])
 
 
-class AppleTvTargetSelect(SelectEntity):
+class AppleTvTargetSelect(CoordinatorEntity[BridgeCoordinator], SelectEntity):
     """Which Apple TV the bridge is currently pointed at."""
 
     _attr_has_entity_name = False
@@ -53,48 +52,41 @@ class AppleTvTargetSelect(SelectEntity):
     _attr_icon = "mdi:apple"
     _attr_unique_id = f"{DOMAIN}_target"
 
-    def __init__(self, bridge: Bridge) -> None:
+    def __init__(self, coordinator: BridgeCoordinator, bridge: Bridge) -> None:
+        super().__init__(coordinator)
         self._bridge = bridge
-        self._targets: dict[str, int] = {}   # label -> identifier
-        self._attr_options = []
-        self._attr_current_option = None
-        self._attr_extra_state_attributes: dict[str, Any] = {}
 
-    async def async_update(self) -> None:
-        try:
-            state = await self._bridge.state()
-        except BridgeError as err:
-            _LOGGER.debug("Bridge unreachable: %s", err)
-            self._attr_available = False
-            return
-
-        self._attr_available = True
-        # Label with the identifier too: tvOS names can repeat across homes, and
-        # the identifier is what actually addresses the device.
-        self._targets = {
-            f"{info.get('name') or 'Apple TV'} ({ident})": int(ident)
-            for ident, info in (state.get("targets") or {}).items()
+    @property
+    def _labels(self) -> dict[str, int]:
+        """label -> identifier."""
+        return {
+            self.coordinator.label_for(ident): int(ident)
+            for ident in self.coordinator.targets
         }
-        self._attr_options = sorted(self._targets)
 
-        active = state.get("activeIdentifier")
-        self._attr_current_option = next(
-            (label for label, ident in self._targets.items() if ident == active), None
-        )
-        # Surfaced so an automation can react to voice being unavailable rather
-        # than discovering it when an utterance silently goes nowhere.
-        self._attr_extra_state_attributes = {
-            "active_identifier": active,
-            "siri_available": state.get("siriAvailable"),
-            "data_streams": state.get("dataStreams"),
-            "recovering": state.get("recovering"),
+    @property
+    def options(self) -> list[str]:
+        return sorted(self._labels)
+
+    @property
+    def current_option(self) -> str | None:
+        active = self.coordinator.active_identifier
+        return next((l for l, i in self._labels.items() if i == active), None)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        data = self.coordinator.data or {}
+        return {
+            "active_identifier": self.coordinator.active_identifier,
+            "siri_available": data.get("siriAvailable"),
+            "data_streams": data.get("dataStreams"),
+            "recovering": data.get("recovering"),
         }
 
     async def async_select_option(self, option: str) -> None:
-        target = self._targets.get(option)
+        target = self._labels.get(option)
         if target is None:
             _LOGGER.warning("Unknown Apple TV target: %s", option)
             return
         await self._bridge.set_target(target)
-        self._attr_current_option = option
-        self.async_write_ha_state()
+        await self.coordinator.async_request_refresh()

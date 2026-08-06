@@ -255,10 +255,34 @@ creates entities you can put on a dashboard:
 | `select.apple_tv_target` | Which Apple TV gets voice and buttons |
 | `button.apple_tv_home` / `_menu` / `_select` / `_play_pause` | The keys worth one tap; everything else is `appletv_siri.press` |
 | `button.recover_siri_voice` | Rebuild the voice data stream by hand |
+| `sensor.apple_tv_bridge` | How many Apple TVs the bridge can see — **and their identifiers** |
+| `binary_sensor.siri_voice_available` | Whether voice works right now for the selected Apple TV |
 
-`select.apple_tv_target` also exposes `siri_available`, `data_streams` and
-`recovering` as attributes, which is the quickest way to see whether voice is
-actually working right now.
+**`sensor.apple_tv_bridge` is where you get the identifiers** for `target:` and
+`sources:`. Open it in Developer Tools → States and its attributes list every
+Apple TV:
+
+```yaml
+apple_tvs:
+  "207551296":
+    name: Living Room
+    identifier: 207551296
+    configured: true
+    voice_ready: true      # has a live data stream
+  "35040583":
+    name: Bedroom
+    identifier: 35040583
+    configured: true
+    voice_ready: true
+active_identifier: 207551296
+siri_available: true
+recovering: false
+```
+
+`binary_sensor.siri_voice_available` is worth an automation. The failure it
+catches is silent — buttons keep working while Siri stops, because the Apple TV
+dropped the stream that carries audio — so without something watching, you find
+out by talking to a remote that does nothing.
 
 The text box is the fastest end-to-end check after installing: type "what's the
 weather" and watch the TV.
@@ -408,6 +432,51 @@ unverified.
 
 Anyone wanting this should spike it first: publish two Target Control services
 and see whether tvOS assigns a different target to each.
+
+## How this differs from the Apple TV integration (pyatv)
+
+Home Assistant's built-in `apple_tv` integration uses **pyatv**, which speaks
+Apple's own MRP/Companion/AirPlay protocols. This uses **HomeKit Target
+Control**. They are different stacks with different strengths, and they are
+complementary rather than competing — most people should run both.
+
+| | `apple_tv` (pyatv) | this |
+|---|---|---|
+| **Metadata** | Now playing, app, artwork, position, volume | **None** — see below |
+| **Siri voice** | No | **Yes** |
+| **Buttons** | Rich: transport, app launch, keyboard, power | The 13 HAP button types |
+| **Pairing** | Per Apple TV, PIN codes in Home Assistant | One Home app pairing covers every Apple TV in the home |
+| **Failure mode** | The Companion connection can go stale, reporting old state for minutes | Independent path; unaffected |
+
+**Use pyatv for state, this for voice.** The two useful things here that pyatv
+cannot do:
+
+1. **Siri.** pyatv has no audio path at all — its `Siri` HID command is only a
+   button press, and there is no microphone channel behind it.
+2. **A button path that does not depend on pyatv's connection health.** When the
+   Companion connection goes stale, `media_player` state freezes while buttons
+   sent this way keep working. That is not theoretical: it happened during
+   development, and reading pyatv's `media_player` state to check whether
+   HomeKit buttons had landed produced hours of false negatives — HA reported a
+   paused movie a full second after the TV had already gone to its home screen.
+
+If you already run `apple_tv`, keep it. Nothing here conflicts with it; the two
+reach the Apple TV over entirely separate transports.
+
+### Can this read metadata back?
+
+**No.** Target Control is a remote-control profile, not a media one. Button
+events go accessory → controller, and the only thing that comes back is
+configuration: which Apple TVs exist, their names and identifiers, and which one
+has claimed the remote. There is no now-playing, no app, no position, no volume
+— the protocol has no channel for it.
+
+What you *can* learn from this integration is surfaced on
+`sensor.apple_tv_bridge`: the Apple TVs the controller has told us about, which
+one is active, and whether each has a live voice stream.
+
+For anything about what is *playing*, use the `apple_tv` integration alongside
+it. That is what it is good at.
 
 ## The one quirk worth understanding
 
