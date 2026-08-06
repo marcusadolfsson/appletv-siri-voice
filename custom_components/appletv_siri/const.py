@@ -9,7 +9,6 @@ CONF_ENTITY = "entity"
 CONF_STATES = "states"
 CONF_ASSIST_PIPELINE = "assist_pipeline"
 CONF_TTS_ENGINE = "tts_engine"
-CONF_SOURCES = "sources"
 
 DEFAULT_BRIDGE_URL = "http://127.0.0.1:8477"
 

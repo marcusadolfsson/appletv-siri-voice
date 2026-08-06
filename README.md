@@ -283,25 +283,6 @@ It is one state lookup, so there is no latency and no guessing at meaning.
 > speech-to-text engine, so an unpinned one accepts the audio and silently
 > returns nothing.
 
-#### Per-microphone routing
-
-`?route=` covers most of it, but a microphone can also be given a name with its
-own rule — useful when one room should follow a different condition entirely:
-
-```yaml
-appletv_siri:
-  sources:
-    bedroom:
-      target: 35040583
-      siri_when:
-        entity: input_select.bedroom_activity
-        states: ["Watch Apple TV"]
-```
-
-```
-POST /api/appletv_siri/audio?source=bedroom
-```
-
 #### Forcing a route
 
 `?route=` overrides the rule for a single utterance:
@@ -345,7 +326,7 @@ names stay short. The three bridge-wide entities sit under an "Apple TV Siri
 bridge" device.
 
 `sensor.apple_tv_bridge` carries the details — the URL to POST audio to for each
-Apple TV, and the identifiers that services and `sources:` take:
+Apple TV, and the identifiers that `appletv_siri.say` and `.press` take:
 
 ```yaml
 apple_tvs:
@@ -459,7 +440,7 @@ is not the default.
 Multiple Target Control service instances **inside one bridge** — one per Apple
 TV, each with its own `Active Identifier` and `Button Event` — plus keying the
 audio session by target rather than holding one. The Home Assistant side would
-not change at all, since `sources` already resolves a target per microphone.
+not change at all, since every request already names its own Apple TV.
 
 Two things keep this speculative rather than planned. Services are static in the
 accessory database, so the number of instances is fixed at publish time while
@@ -593,7 +574,6 @@ UI holds — so the two can be used together.
 
 | Key | Default | Notes |
 |---|---|---|
-| `sources` | `{}` | Named microphones; each may set `target`, `siri_when`, `assist_pipeline`. Selected with `?source=<name>` |
 | `siri_when.entity` / `.states` | *(absent)* | Route to Siri while entity is in one of these states. **Absent means everything goes to Siri** |
 | `assist_pipeline` | *(HA default)* | Which Assist pipeline handles non-Siri utterances. **Pin it** — HA's default has no speech-to-text engine and silently returns nothing |
 

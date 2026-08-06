@@ -45,7 +45,6 @@ from .const import (
     CONF_BRIDGE_URL,
     CONF_ENTITY,
     CONF_SIRI_WHEN,
-    CONF_SOURCES,
     CONF_STATES,
     CONF_TARGET,
     DEFAULT_BRIDGE_URL,
@@ -65,23 +64,10 @@ SIRI_WHEN_SCHEMA = vol.Schema(
     }
 )
 
-# A named microphone. `source` in the URL is an IDENTITY claim ("I am the
-# bedroom remote"), not a routing decision — where "bedroom" points stays here,
-# so replacing an Apple TV means editing this block rather than reconfiguring
-# every remote in the house.
-SOURCE_SCHEMA = vol.Schema(
-    {
-        vol.Optional(CONF_TARGET): vol.Coerce(int),
-        vol.Optional(CONF_SIRI_WHEN): SIRI_WHEN_SCHEMA,
-        vol.Optional(CONF_ASSIST_PIPELINE): cv.string,
-    }
-)
-
 CONFIG_SCHEMA = vol.Schema(
     {
         DOMAIN: vol.Schema(
             {
-                vol.Optional(CONF_SOURCES, default={}): {cv.string: SOURCE_SCHEMA},
                 vol.Optional(CONF_BRIDGE_URL, default=DEFAULT_BRIDGE_URL): cv.string,
                 vol.Optional(CONF_SIRI_WHEN): SIRI_WHEN_SCHEMA,
                 vol.Optional(CONF_ASSIST_PIPELINE): cv.string,
@@ -97,7 +83,7 @@ PLATFORMS = ["binary_sensor", "button", "sensor", "text"]
 
 # Routing keys that stay in YAML: they are nested and awkward in a config form,
 # and they are merged over whatever the config entry holds.
-YAML_ONLY = (CONF_SOURCES, CONF_SIRI_WHEN, CONF_ASSIST_PIPELINE)
+YAML_ONLY = (CONF_SIRI_WHEN, CONF_ASSIST_PIPELINE)
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -121,8 +107,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     yaml_conf = (hass.data.get(DOMAIN) or {}).get("yaml", {})
     # Entry holds the connection settings; YAML contributes routing on top.
     # CONF_TARGET is filtered out: there is no default Apple TV any more, and an
-    # entry imported before that change still carries one. Only `sources` may
-    # name a target, and the URL always can.
+    # entry imported before that change still carries one. The URL names the
+    # Apple TV now, and it is the only thing that does.
     conf: dict[str, Any] = {
         **{k: v for k, v in entry.data.items() if v is not None and k != CONF_TARGET},
         **{k: v for k, v in entry.options.items() if v is not None and k != CONF_TARGET},
@@ -286,18 +272,6 @@ class SiriRemoteAudioView(HomeAssistantView):
         )
         return None
 
-    def _settings_for(self, source: str | None) -> dict[str, Any]:
-        """Config for this microphone: its own keys, falling back to the global ones."""
-        if not source:
-            return self._conf
-        src = (self._conf.get(CONF_SOURCES) or {}).get(source)
-        if src is None:
-            _LOGGER.warning(
-                "Unknown source %r; using the default target. Known sources: %s",
-                source, sorted(self._conf.get(CONF_SOURCES) or {}) or "none configured",
-            )
-            return self._conf
-        return {**self._conf, **{k: v for k, v in src.items() if v is not None}}
 
     def _route_is_siri(self, conf: dict[str, Any] | None = None) -> bool:
         """Where this utterance should go.
@@ -313,7 +287,7 @@ class SiriRemoteAudioView(HomeAssistantView):
         return bool(state and state.state in rule[CONF_STATES])
 
     async def post(self, request: web.Request, target: str | None = None) -> web.Response:
-        conf = self._settings_for(request.query.get("source"))
+        conf = self._conf
         # The URL names the Apple TV. There is no default: an utterance with no
         # destination is a mistake worth reporting, not something to guess at.
         if (resolved := self._resolve(target)) is not None:
