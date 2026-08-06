@@ -2,13 +2,30 @@
 
 **Send voice to Siri on your Apple TV — and remote buttons — from Home Assistant.**
 
-Home Assistant can already run a local assistant. What it can't do is talk to
-*Siri*, and Siri is the only thing that knows how to skip to the next episode,
-launch an app, or answer "who's in this?" about the show currently on screen.
+Speak into any microphone on your network and the words land on your Apple TV
+as if you had held the button on the Siri Remote:
 
-This project makes Home Assistant appear to your Apple TV as a **HomeKit remote**
-— the same accessory profile Crestron's TSR-310 uses — so it can deliver button
-presses and stream voice into Siri.
+> *"Skip the intro"* · *"What did she say?"* · *"Play the next episode"* ·
+> *"Open Netflix"* · *"Turn on subtitles"*
+
+Or send text instead, and Home Assistant speaks it for you — so an automation
+can talk to the TV with no microphone in the loop at all:
+
+```yaml
+- action: appletv_siri.say
+  data:
+    text: "Play Slow Horses"
+
+# Any Apple TV in the house, by name in the UI or by id in an automation
+- action: appletv_siri.say
+  data:
+    target: 35040583          # the bedroom Apple TV
+    text: "Pause"
+```
+
+Both paths reach the same place. This project makes Home Assistant appear to
+your Apple TV as a **HomeKit remote** — the same accessory profile Crestron's
+TSR-310 uses — so it can stream voice into Siri and deliver button presses.
 
 No MFi licence, no special hardware, no jailbreak. It pairs from the Home app
 with an ordinary 8-digit setup code.
@@ -226,9 +243,6 @@ because it can see what's playing:
 - "What's the weather tomorrow?"
 - "Set a timer for ten minutes"
 - "How long is this movie?"
-
-Meanwhile the Assist route handles the house: *"turn off the kitchen lights"*,
-*"set the thermostat to 70"*, *"is the garage door closed?"*
 
 > **Worth knowing:** if you already expose entities to HomeKit, Siri can control
 > them too — so "turn off the lights" works on *both* routes and will be handled
