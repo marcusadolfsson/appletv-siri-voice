@@ -8,11 +8,14 @@ sidecar container. If HDS is ever ported to Python, only this file changes.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterable
 from typing import Any
 
 import aiohttp
+
+from .const import BYTES_PER_MS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -61,10 +64,17 @@ class Bridge:
 
         The body IS the utterance: the bridge holds the SIRI button down for the
         whole request and releases it when the body ends, which is what makes
-        tvOS process it. Passing a stream through un-buffered means audio
-        reaches Siri while the user is still speaking.
+        tvOS process it. Passing a live stream through un-buffered means audio
+        reaches Siri while the person is still speaking.
+
+        Audio handed over as a complete buffer — synthesised speech — is paced
+        instead. Siri is listening for someone talking, so a whole utterance
+        arriving at once reads as a burst of noise: the session opens and closes
+        again in a fraction of the audio's length, and nothing is recognised.
         """
         path = "/siri/stream" + (f"?target={int(target)}" if target else "")
+        if isinstance(audio, (bytes, bytearray)):
+            audio = _paced(bytes(audio))
         return await self._request("post", path, data=audio)
 
     async def _request(self, method: str, path: str, **kw: Any) -> dict[str, Any]:
@@ -78,3 +88,11 @@ class Bridge:
                 return body
         except aiohttp.ClientError as err:
             raise BridgeError(f"bridge unreachable at {self._url}: {err}") from err
+
+
+async def _paced(data: bytes, chunk_ms: int = 20) -> AsyncIterable[bytes]:
+    """Feed a complete buffer at the speed it would have been spoken."""
+    step = chunk_ms * BYTES_PER_MS
+    for i in range(0, len(data), step):
+        yield data[i : i + step]
+        await asyncio.sleep(chunk_ms / 1000)
