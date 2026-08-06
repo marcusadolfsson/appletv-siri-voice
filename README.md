@@ -121,7 +121,14 @@ appletv_siri:
   tts_engine: tts.google_translate_en_com   # only needed for `say`
 ```
 
-Restart Home Assistant. That is genuinely all of it: with one Apple TV, voice
+Restart Home Assistant.
+
+> `google_translate` is one of four integrations Home Assistant sets up
+> automatically during onboarding, so this entity usually exists already — but
+> the id varies by language and domain (`tts.google_translate_de_de` and so on).
+> Check Settings → Devices & Services → Entities and filter for `tts.`. Any
+> engine works; pin one explicitly, because Home Assistant's *default* is the
+> Cloud engine and it fails opaquely when the account is signed out. That is genuinely all of it: with one Apple TV, voice
 goes to it and there is nothing else to configure.
 
 **With more than one Apple TV**, open **`sensor.apple_tv_bridge`** in
@@ -266,16 +273,22 @@ your pipeline is a chatty LLM, prefer `siri_when`.
 
 ### Entities
 
-The integration is configured in YAML — so Home Assistant's device page will say
-*"This integration was not set up via the UI"*, which is expected — but it
-creates entities you can put on a dashboard:
+You get one set per Apple TV, named after it, so nothing has to be "selected"
+before it can be used:
 
 | Entity | What it does |
 |---|---|
-| `text.say_to_siri` | Type a command, press enter, Siri hears it. The box clears afterwards, because it is an action rather than a setting |
-| `select.apple_tv_target` | Which Apple TV gets voice and buttons |
-| `button.apple_tv_home` / `_menu` / `_select` / `_play_pause` | The keys worth one tap; everything else is `appletv_siri.press` |
-| `button.recover_siri_voice` | Rebuild the voice data stream by hand |
+| `text.say_to_siri_<apple tv>` | Type a command, press enter, Siri on **that** Apple TV hears it. The box clears afterwards, because it is an action rather than a setting |
+| `button.<apple tv>_home` / `_menu` / `_select` / `_play_pause` | The keys worth one tap; everything else is `appletv_siri.press` |
+| `binary_sensor.<apple tv>_siri_voice_available` | Whether voice works for that Apple TV right now |
+| `select.apple_tv_target` | The *default* Apple TV, for the audio endpoint and for services called without a target |
+| `button.recover_siri_voice` | Rebuild the voice data stream by hand (bridge-wide) |
+
+> **On the integrations page** Home Assistant says *"This integration was not set
+> up via the UI"*. That is expected — it is configured in YAML. One consequence
+> worth knowing: an integration without a config entry cannot create **devices**,
+> so these entities are named individually rather than being grouped under an
+> Apple TV device. A config flow would fix both.
 | `sensor.apple_tv_bridge` | How many Apple TVs the bridge can see — **and their identifiers** |
 | `binary_sensor.siri_voice_available` | Whether voice works right now for the selected Apple TV |
 

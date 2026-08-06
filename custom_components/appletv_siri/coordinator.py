@@ -49,6 +49,42 @@ class BridgeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def active_identifier(self) -> int | None:
         return (self.data or {}).get("activeIdentifier")
 
+    def clean_name(self, identifier: Any) -> str:
+        """The Apple TV's real name, recovered where possible.
+
+        hap-nodejs returns target names concatenated (a TLV parsing quirk
+        upstream): with two Apple TVs called "Living Room" and "Bedroom", one
+        arrives as "Living RoomBedroom" and the other as "BedroomLiving Room".
+
+        Those two strings are rotations of each other, so with exactly two
+        targets the split point can be found and the real names recovered. With
+        any other number the encoding is ambiguous, so fall back to the
+        identifier — which is at least unambiguous, and the device can be
+        renamed in Home Assistant like any other.
+        """
+        raw = (self.targets.get(str(identifier)) or {}).get("name") or ""
+        names = [(i, (info.get("name") or "")) for i, info in self.targets.items()]
+
+        if len(names) == 2 and all(n for _, n in names):
+            (i_a, a), (i_b, b) = names
+            if len(a) == len(b):
+                for k in range(1, len(a)):
+                    if a[k:] + a[:k] == b:
+                        first, second = a[:k], a[k:]
+                        # `first` belongs to whichever target `a` came from.
+                        return (first if str(identifier) == str(i_a) else second).strip()
+
+        return raw.strip() or f"Apple TV {identifier}"
+
+    def device_info(self, identifier: Any) -> dict[str, Any]:
+        """Group this Apple TV's entities under one device."""
+        return {
+            "identifiers": {(DOMAIN, str(identifier))},
+            "name": self.clean_name(identifier),
+            "manufacturer": "Apple",
+            "model": "Apple TV (HomeKit Target Control)",
+        }
+
     def label_for(self, identifier: Any) -> str:
         """Human label for a target, with the identifier kept visible.
 

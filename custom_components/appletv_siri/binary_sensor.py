@@ -1,9 +1,8 @@
-"""Is voice actually usable right now?
+"""Whether voice actually works, per Apple TV.
 
-Worth an entity of its own: the failure mode this catches is silent. Buttons
-keep working while Siri stops, because the Apple TV has dropped the data stream
-that carries audio — so without something to watch, you find out by talking to a
-remote that does nothing.
+Worth an entity because the failure is silent: buttons keep working while Siri
+stops, since the Apple TV has dropped the data stream that carries audio. With
+nothing watching, you find out by talking to a remote that does nothing.
 """
 
 from __future__ import annotations
@@ -21,6 +20,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
 from .coordinator import BridgeCoordinator
+from .entity_setup import add_per_target_entities
 
 
 async def async_setup_platform(
@@ -31,29 +31,36 @@ async def async_setup_platform(
 ) -> None:
     if discovery_info is None or DOMAIN not in hass.data:
         return
-    async_add_entities([SiriAvailableBinarySensor(hass.data[DOMAIN]["coordinator"])])
+    coordinator: BridgeCoordinator = hass.data[DOMAIN]["coordinator"]
+    add_per_target_entities(
+        coordinator, async_add_entities, lambda t: [SiriAvailable(coordinator, t)],
+    )
 
 
-class SiriAvailableBinarySensor(CoordinatorEntity[BridgeCoordinator], BinarySensorEntity):
-    """On when the selected Apple TV has a live voice data stream."""
+class SiriAvailable(CoordinatorEntity[BridgeCoordinator], BinarySensorEntity):
+    """On when this Apple TV has a live voice data stream."""
 
-    _attr_name = "Siri voice available"
-    _attr_unique_id = f"{DOMAIN}_siri_available"
     _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
 
-    def __init__(self, coordinator: BridgeCoordinator) -> None:
+    def __init__(self, coordinator: BridgeCoordinator, target: int) -> None:
         super().__init__(coordinator)
+        self._target = target
+        self._attr_name = f"{coordinator.clean_name(target)} Siri voice available"
+        self._attr_unique_id = f"{DOMAIN}_{target}_siri_available"
 
     @property
     def is_on(self) -> bool | None:
         if self.coordinator.data is None:
             return None
-        return bool(self.coordinator.data.get("siriAvailable"))
+        # Per Apple TV: the streams die independently, so a healthy one
+        # elsewhere must not report this device as ready.
+        streams = [int(s) for s in (self.coordinator.data.get("dataStreams") or [])]
+        return self._target in streams
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        data = self.coordinator.data or {}
         return {
-            "active_identifier": self.coordinator.active_identifier,
-            "recovering": data.get("recovering"),
+            "identifier": self._target,
+            "is_active_target": self.coordinator.active_identifier == self._target,
+            "recovering": (self.coordinator.data or {}).get("recovering"),
         }

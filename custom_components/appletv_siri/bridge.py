@@ -39,8 +39,16 @@ class Bridge:
     async def set_target(self, target: int) -> dict[str, Any]:
         return await self._request("post", f"/active/{int(target)}")
 
-    async def press(self, button: str) -> dict[str, Any]:
-        return await self._request("post", f"/press/{button.upper()}")
+    async def press(self, button: str, target: int | None = None) -> dict[str, Any]:
+        """Press a button, optionally naming the Apple TV.
+
+        The target is passed on the same call rather than via set_target first:
+        two round trips race when several Apple TVs are driven independently.
+        """
+        path = f"/press/{button.upper()}"
+        if target is not None:
+            path += f"?target={int(target)}"
+        return await self._request("post", path)
 
     async def recover(self) -> dict[str, Any]:
         """Kick the capability-toggle that makes tvOS reopen its data stream."""

@@ -324,6 +324,10 @@ const server = http.createServer(async (req, res) => {
     if (action === 'press' && arg) {
       const btn = ButtonType[arg.toUpperCase()];
       if (btn === undefined) return json(res, { error: `unknown button ${arg}` }, 400);
+      // ?target= selects and presses in one call. Doing it as two round trips
+      // is a race when several Apple TVs are driven from separate entities.
+      const t = url.searchParams.get('target');
+      if (t) rc.setActiveIdentifier(parseInt(t, 10));
       if (!(await whenActive())) return json(res, { error: 'no Apple TV has claimed the remote' }, 409);
       rc.pushAndReleaseButton(btn);
       return json(res, { ok: true, button: arg.toUpperCase(), target: rc.activeIdentifier });
