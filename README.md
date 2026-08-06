@@ -243,6 +243,26 @@ your pipeline is a chatty LLM, prefer `siri_when`.
 | `appletv_siri.set_target` | Choose which Apple TV gets buttons and voice |
 | `appletv_siri.recover` | Force the Apple TV to reopen its voice data stream |
 
+### Entities
+
+The integration is configured in YAML — so Home Assistant's device page will say
+*"This integration was not set up via the UI"*, which is expected — but it
+creates entities you can put on a dashboard:
+
+| Entity | What it does |
+|---|---|
+| `text.say_to_siri` | Type a command, press enter, Siri hears it. The box clears afterwards, because it is an action rather than a setting |
+| `select.apple_tv_target` | Which Apple TV gets voice and buttons |
+| `button.apple_tv_home` / `_menu` / `_select` / `_play_pause` | The keys worth one tap; everything else is `appletv_siri.press` |
+| `button.recover_siri_voice` | Rebuild the voice data stream by hand |
+
+`select.apple_tv_target` also exposes `siri_available`, `data_streams` and
+`recovering` as attributes, which is the quickest way to see whether voice is
+actually working right now.
+
+The text box is the fastest end-to-end check after installing: type "what's the
+weather" and watch the TV.
+
 ### Written commands
 
 ```yaml
@@ -321,26 +341,73 @@ replaced or re-paired.
 An unrecognised `source` falls back to the default target and logs a warning
 naming the ones it knows, so a typo doesn't silently talk to the wrong room.
 
-**One utterance at a time — for now.** A second request waits briefly for the
-first to finish and then gets a clean `409`, rather than interleaving its audio
-into the first one's stream.
+### Simultaneous conversations — the one real limitation
 
-This is a limitation of the library, **not of HomeKit**. The spec explicitly
-provides for concurrency (§8.39): *"If an accessory can support control of
-multiple concurrent Apple TVs at the same time … it must expose multiple
-instances of this service."* HAP-NodeJS creates exactly one Target Control
-service and holds one audio session, so one accessory currently serializes.
+**Only one utterance can be in flight at a time, across all Apple TVs.** A
+second request waits up to 4 seconds for the first to finish and then gets a
+clean `409`, rather than interleaving its audio into the first one's stream.
 
-Worth knowing: the **data streams are already per-Apple-TV** — a bridge serving
-two of them holds two of them open concurrently. Only the controller layer
-serializes, so lifting this means multiple Target Control service instances in
-one bridge, not multiple bridges.
+For a household this is usually invisible: it only bites if two people speak to
+two *different* Apple TVs within the same couple of seconds, and the 4-second
+wait absorbs merely near-simultaneous use. Measure before working around it.
 
-If you genuinely need simultaneous conversations today, run a second container
-with its own `HAP_USERNAME`, `HAP_PORT`, `HAP_UUID_SEED` and storage volume, and
-pair it separately — you get one accessory (and one setup code) per Apple TV.
-In practice the 4-second wait absorbs near-simultaneous use, so this is worth
-measuring before building.
+**This is a limitation of the library, not of HomeKit.** The spec explicitly
+provides for concurrency (§8.39):
+
+> *"If an accessory can support control of multiple concurrent Apple TVs at the
+> same time without requiring the user to select an Apple TV on the remote
+> accessory UI, it must expose multiple instances of this service."*
+
+HAP-NodeJS creates exactly one Target Control service and holds a single audio
+session. Its own source leaves the question open:
+
+```js
+// you can also expose multiple TargetControl services to control multiple apple tvs simultaneously.
+// should we extend this class to support multiple TargetControl services or should users just create a second accessory?
+```
+
+Note that the **data streams are already per-Apple-TV** — a bridge serving two
+holds two open concurrently. Only the controller layer above them serializes.
+
+#### Workaround: one bridge per Apple TV
+
+Run a second container with its own HomeKit identity and pair it separately. You
+get one accessory, and one setup code, per Apple TV:
+
+```yaml
+  appletv-siri-voice-bedroom:
+    image: ghcr.io/marcusadolfsson/appletv-siri-voice:latest
+    network_mode: host
+    environment:
+      - HAP_NAME=Voice Remote (Bedroom)
+      - HAP_USERNAME=1A:2B:3C:4D:5E:70   # MUST differ from the first bridge
+      - HAP_PORT=47130                   # ditto
+      - HAP_UUID_SEED=bedroom            # ditto
+      - CTRL_PORT=8478
+    volumes:
+      - ./bedroom-data:/data/persist     # its own pairing state
+```
+
+The cost is a second pairing to manage and a second setup code, which is why it
+is not the default.
+
+#### The better fix, if it ever proves necessary
+
+Multiple Target Control service instances **inside one bridge** — one per Apple
+TV, each with its own `Active Identifier` and `Button Event` — plus keying the
+audio session by target rather than holding one. The Home Assistant side would
+not change at all, since `sources` already resolves a target per microphone.
+
+Two things keep this speculative rather than planned. Services are static in the
+accessory database, so the number of instances is fixed at publish time while
+targets only arrive *after* pairing; and adding services renumbers instance ids,
+which is precisely the failure mode where buttons keep working and Siri silently
+stops. Most importantly, §8.39 is an *accessory-side* requirement — it does not
+promise that tvOS will actually drive two instances at once, and that is
+unverified.
+
+Anyone wanting this should spike it first: publish two Target Control services
+and see whether tvOS assigns a different target to each.
 
 ## The one quirk worth understanding
 
@@ -422,7 +489,8 @@ the bridge directly.
 - Target *names* come back garbled (a TLV parsing quirk in hap-nodejs); the
   identifiers are correct, which is what matters.
 - One utterance at a time, across all Apple TVs — a HAP-NodeJS limitation rather
-  than a HomeKit one (see [Multiple microphones](#multiple-microphones)).
+  than a HomeKit one. Workarounds and the proper fix are documented under
+  [Simultaneous conversations](#simultaneous-conversations--the-one-real-limitation).
 - Not affiliated with or endorsed by Apple. "Siri", "Apple TV" and "HomeKit" are
   trademarks of Apple Inc.
 

@@ -149,8 +149,11 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         }),
     )
 
-    # A select entity listing the Apple TVs the bridge knows about.
-    hass.async_create_task(async_load_platform(hass, "select", DOMAIN, {}, config))
+    # Entities, so the integration is usable from the UI rather than being
+    # service-calls-only: a target selector, a box to talk to Siri, and the
+    # handful of remote keys worth one tap.
+    for platform in ("select", "text", "button"):
+        hass.async_create_task(async_load_platform(hass, platform, DOMAIN, {}, config))
     return True
 
 
