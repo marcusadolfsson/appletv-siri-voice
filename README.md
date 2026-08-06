@@ -100,18 +100,15 @@ Open the **Home** app → **Add Accessory** → **More options…** → pick
 *Voice Remote* → enter the setup code (default `031-45-154`; change it with
 `HAP_PINCODE`).
 
-Within a few seconds the log shows your Apple TVs registering as targets:
+Within a few seconds the log shows your Apple TVs registering themselves:
 
 ```
 [remote] target-add 207551296
 [hap] data stream present at boot: 207551296
 ```
 
-Note the identifiers — you'll want one for `target:`.
-
-```
-curl http://127.0.0.1:8477/state     # lists targets and their names
-```
+You do not need to note anything down — the integration surfaces all of it in
+the next step.
 
 ### 3. Install the integration
 
@@ -121,16 +118,40 @@ directory (or add this repo to HACS as a custom repository), then:
 ```yaml
 # configuration.yaml
 appletv_siri:
-  bridge_url: http://127.0.0.1:8477
-  target: 207551296                        # which Apple TV (from /state)
-  tts_engine: tts.google_translate_en_com  # only needed for `say`
+  tts_engine: tts.google_translate_en_com   # only needed for `say`
 ```
 
-That's it — every utterance goes to Siri. Routing some of them to Assist
-instead is optional and covered
-[further down](#sharing-a-microphone-with-assist).
+Restart Home Assistant. That is genuinely all of it: with one Apple TV, voice
+goes to it and there is nothing else to configure.
 
-Restart Home Assistant.
+**With more than one Apple TV**, open **`sensor.apple_tv_bridge`** in
+Developer Tools → States. Its attributes list every Apple TV the bridge can see:
+
+```yaml
+apple_tvs:
+  "207551296":
+    name: Living Room
+    identifier: 207551296
+    voice_ready: true
+  "35040583":
+    name: Bedroom
+    identifier: 35040583
+    voice_ready: true
+```
+
+Use those identifiers to pin a default, and to name each microphone:
+
+```yaml
+appletv_siri:
+  tts_engine: tts.google_translate_en_com
+  target: 207551296          # default Apple TV
+  sources:
+    living_room: { target: 207551296 }
+    bedroom:     { target: 35040583 }
+```
+
+You can also switch target at any time from `select.apple_tv_target` rather than
+editing YAML.
 
 ### 4. Send it audio
 
