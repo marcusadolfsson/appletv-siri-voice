@@ -166,8 +166,15 @@ and it needs to know nothing else:
 /api/appletv_siri/audio/207551296       ← or by identifier
 ```
 
-The exact URLs are listed on `sensor.apple_tv_bridge`, so there is nothing to
-construct.
+**You don't have to construct these.** Each Apple TV's device page shows its
+own, ready to paste:
+
+**Settings → Devices & Services → Apple TV Siri Voice → *(the Apple TV)*** — a
+**Voice URL** sensor under *Diagnostic*, holding the full address:
+
+```
+http://homeassistant.local:8123/api/appletv_siri/audio/living_room
+```
 
 POST raw **PCM16, 16 kHz, mono** with a normal long-lived token. The end of the
 request body is the end of the utterance, so stream it — don't buffer and send.
@@ -300,6 +307,7 @@ before it can be used:
 | `text.say_to_siri_<apple tv>` | Type a command, press enter, Siri on **that** Apple TV hears it. The box clears afterwards, because it is an action rather than a setting |
 | `button.<apple tv>_home` / `_menu` / `_select` / `_play_pause` | The keys worth one tap; everything else is `appletv_siri.press` |
 | `binary_sensor.<apple tv>_siri_voice_available` | Whether voice works for that Apple TV right now |
+| `sensor.<apple tv>_voice_url` | The full URL to POST that Apple TV's audio to — copy it into the microphone |
 | `sensor.apple_tv_bridge` | How many Apple TVs the bridge can see, and everything about them |
 | `button.recover_siri_voice` | Rebuild the voice data stream by hand (bridge-wide) |
 

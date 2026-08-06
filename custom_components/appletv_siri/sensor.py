@@ -16,8 +16,11 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
+from homeassistant.helpers.network import NoURLAvailableError, get_url
+
 from .const import CONF_BRIDGE_URL, DEFAULT_BRIDGE_URL, DOMAIN
 from .coordinator import BridgeCoordinator
+from .entity_setup import add_per_target_entities
 
 
 async def async_setup_entry(
@@ -26,7 +29,13 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     data = hass.data[DOMAIN]
-    async_add_entities([BridgeSensor(data["coordinator"], data["conf"])])
+    coordinator: BridgeCoordinator = data["coordinator"]
+    async_add_entities([BridgeSensor(coordinator, data["conf"])])
+    # One per Apple TV, so the URL a microphone needs is on that Apple TV's own
+    # device page rather than buried in another entity's attributes.
+    add_per_target_entities(
+        coordinator, async_add_entities, lambda t: [VoiceUrlSensor(hass, coordinator, t)]
+    )
 
 
 class BridgeSensor(CoordinatorEntity[BridgeCoordinator], SensorEntity):
@@ -76,4 +85,42 @@ class BridgeSensor(CoordinatorEntity[BridgeCoordinator], SensorEntity):
             "data_streams": streams,
             "recovering": data.get("recovering"),
             "bridge_url": self._conf.get(CONF_BRIDGE_URL, DEFAULT_BRIDGE_URL),
+        }
+
+
+class VoiceUrlSensor(CoordinatorEntity[BridgeCoordinator], SensorEntity):
+    """Where to POST audio for this Apple TV.
+
+    A sensor rather than an attribute somewhere: this is the one thing you have
+    to copy into a microphone's config, and it should be visible on the device
+    page for the Apple TV it belongs to.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Voice URL"
+    _attr_icon = "mdi:link-variant"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, coordinator: BridgeCoordinator, target: int) -> None:
+        super().__init__(coordinator)
+        self._hass = hass
+        self._target = target
+        self._attr_unique_id = f"{DOMAIN}_{target}_voice_url"
+        self._attr_device_info = coordinator.device_info(target)
+
+    @property
+    def native_value(self) -> str | None:
+        path = self.coordinator.voice_url(self._target)
+        # Absolute where possible, so it can be pasted straight into a device.
+        try:
+            return f"{get_url(self._hass)}{path}"
+        except NoURLAvailableError:
+            return path
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {
+            "path": self.coordinator.voice_url(self._target),
+            "identifier": self._target,
+            "audio_format": "PCM16, 16 kHz, mono — POST the raw stream",
         }
