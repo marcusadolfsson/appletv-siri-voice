@@ -1,6 +1,6 @@
 # Apple TV Siri Voice for Home Assistant
 
-**Send voice to Siri on your Apple TV — and remote buttons — from Home Assistant.
+**Send voice to Siri on your Apple TV from Home Assistant.
 Just like from the physical Siri Remote.**
 
 Speak into any microphone on your network and the words reach Siri on the Apple
