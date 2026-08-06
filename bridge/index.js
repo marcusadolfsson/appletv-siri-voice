@@ -58,13 +58,29 @@ const BOOT_HDS_GRACE_MS = Number(process.env.HDS_BOOT_GRACE_MS || 25_000);
 const RECOVERY_PHASE1_MS = Number(process.env.HDS_PHASE1_MS || 45_000);
 const RECOVERY_WAIT_MS = Number(process.env.HDS_WAIT_MS || 60_000);
 const WATCHDOG_INTERVAL_MS = Number(process.env.HDS_WATCHDOG_MS || 300_000);
+/** How long a new utterance waits for the previous one to finish. */
+const LOCK_WAIT_MS = Number(process.env.SIRI_LOCK_WAIT_MS || 4_000);
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // --- audio -----------------------------------------------------------------
 
-const audio = { pending: Buffer.alloc(0), handler: null, encoder: null, frames: 0 };
+/**
+ * The utterance currently in flight, or null.
+ *
+ * Exactly one at a time, deliberately. hap-nodejs supports a single Siri audio
+ * session, and the SIRI button and active target are both single-valued — so
+ * two overlapping utterances cannot be delivered no matter how this is written.
+ * Holding them in one object scoped to the request means a second caller gets a
+ * clean 409 instead of interleaving its audio into the first one's buffer and
+ * flipping the target out from under it, which is what a shared global did.
+ */
+let session = null;
+
+const newSession = (target) => ({
+  target, pending: Buffer.alloc(0), handler: null, encoder: null, frames: 0,
+});
 
 function rmsNorm(buf) {
   let sum = 0;
@@ -76,18 +92,19 @@ function rmsNorm(buf) {
   return n ? Math.sqrt(sum / n) / 32768 : 0;
 }
 
-/** Append PCM and emit every whole 20 ms frame now available. */
+/** Append PCM to the in-flight utterance and emit every whole 20 ms frame. */
 function pushPcm(chunk) {
+  if (!session) return;
   if (chunk.length) {
-    audio.pending = audio.pending.length ? Buffer.concat([audio.pending, chunk]) : chunk;
+    session.pending = session.pending.length ? Buffer.concat([session.pending, chunk]) : chunk;
   }
-  if (!audio.handler) return; // session not open yet — keep buffering
-  while (audio.pending.length >= FRAME_BYTES) {
-    const slice = audio.pending.subarray(0, FRAME_BYTES);
-    audio.pending = audio.pending.subarray(FRAME_BYTES);
+  if (!session.handler) return; // audio session not open yet — keep buffering
+  while (session.pending.length >= FRAME_BYTES) {
+    const slice = session.pending.subarray(0, FRAME_BYTES);
+    session.pending = session.pending.subarray(FRAME_BYTES);
     try {
-      audio.handler({ data: audio.encoder.encode(slice, FRAME_SAMPLES), rms: rmsNorm(slice) });
-      audio.frames++;
+      session.handler({ data: session.encoder.encode(slice, FRAME_SAMPLES), rms: rmsNorm(slice) });
+      session.frames++;
     } catch (e) {
       log('[siri] encode error:', e.message);
       return;
@@ -101,18 +118,21 @@ class PcmSiriAudioProducer {
   }
 
   startAudioProduction(selected) {
-    log('[siri] session opened; tvOS asked for', JSON.stringify(selected));
-    audio.encoder = new OpusScript(16000, 1, OpusScript.Application.VOIP);
-    audio.frames = 0;
-    audio.handler = this.frameHandler;
+    if (!session) { log('[siri] audio session opened with no utterance in flight'); return; }
+    log(`[siri] session opened for ${session.target}; tvOS asked for`, JSON.stringify(selected));
+    session.encoder = new OpusScript(16000, 1, OpusScript.Application.VOIP);
+    session.frames = 0;
+    session.handler = this.frameHandler;
     pushPcm(Buffer.alloc(0)); // flush whatever arrived before the session opened
   }
 
   stopAudioProduction() {
-    log(`[siri] session closed after ${audio.frames} frames (${audio.frames * FRAME_MS} ms)`);
-    audio.handler = null;
-    audio.encoder = null;
-    audio.pending = Buffer.alloc(0);
+    if (session) {
+      log(`[siri] session closed after ${session.frames} frames (${session.frames * FRAME_MS} ms)`);
+      session.handler = null;
+      session.encoder = null;
+      session.pending = Buffer.alloc(0);
+    }
   }
 }
 
@@ -320,6 +340,15 @@ const server = http.createServer(async (req, res) => {
     // whole body and released after: pushAndReleaseButton() releases at 200 ms,
     // which tears the audio session down before a syllable lands.
     if (action === 'siri' && arg === 'stream') {
+      // Wait for the previous utterance rather than refusing outright: the
+      // release tail keeps the lock ~250 ms after a reply is sent, so two
+      // sequential requests would otherwise collide even though they never
+      // actually overlap. A genuine overlap still gets a clean 409.
+      if (session && !(await waitFor(() => !session, LOCK_WAIT_MS, 100))) {
+        return json(res, {
+          error: `busy: an utterance to Apple TV ${session.target} is already in flight`,
+        }, 409);
+      }
       const target = url.searchParams.get('target');
       if (target) rc.setActiveIdentifier(parseInt(target, 10));
       if (!(await whenActive())) return json(res, { error: 'no Apple TV has claimed the remote' }, 409);
@@ -331,21 +360,25 @@ const server = http.createServer(async (req, res) => {
         }, 503);
       }
 
-      audio.pending = Buffer.alloc(0);
+      session = newSession(rc.activeIdentifier);
       rc.pushButton(ButtonType.SIRI);
-      log(`[siri] utterance -> target ${rc.activeIdentifier}`);
+      log(`[siri] utterance -> target ${session.target}`);
 
       let bytes = 0;
-      req.on('data', (c) => { bytes += c.length; pushPcm(c); });
-      req.on('end', () => {
+      const finish = () => {
         // Small tail so the last frames flush before tvOS gets endOfStream.
         setTimeout(() => {
-          rc.releaseButton(ButtonType.SIRI);
+          try { rc.releaseButton(ButtonType.SIRI); } catch (e) { /* already released */ }
           log(`[siri] released after ${bytes} bytes (~${Math.round(bytes / 32)} ms)`);
+          session = null;   // lock freed only here, so the next caller cannot overlap
         }, 250);
+      };
+      req.on('data', (c) => { bytes += c.length; pushPcm(c); });
+      req.on('end', () => {
+        finish();
         json(res, { ok: true, bytes, ms: Math.round(bytes / 32), target: rc.activeIdentifier });
       });
-      req.on('error', () => { try { rc.releaseButton(ButtonType.SIRI); } catch (e) { /* already released */ } });
+      req.on('error', finish);
       return;
     }
 
@@ -357,14 +390,20 @@ const server = http.createServer(async (req, res) => {
       if (!file || !fs.existsSync(file)) return json(res, { error: 'missing/unknown file' }, 400);
       if (!(await whenActive())) return json(res, { error: 'no Apple TV has claimed the remote' }, 409);
       if (!hasHdsFor(rc.activeIdentifier)) return json(res, { error: 'no HomeKit data stream for the active target' }, 503);
+      if (session && !(await waitFor(() => !session, LOCK_WAIT_MS, 100))) {
+        return json(res, { error: 'busy: an utterance is already in flight' }, 409);
+      }
       const pcm = fs.readFileSync(file).subarray(44);
-      audio.pending = Buffer.alloc(0);
+      session = newSession(rc.activeIdentifier);
       rc.pushButton(ButtonType.SIRI);
       let off = 0;
       const iv = setInterval(() => {
         if (off + FRAME_BYTES > pcm.length) {
           clearInterval(iv);
-          setTimeout(() => rc.releaseButton(ButtonType.SIRI), 250);
+          setTimeout(() => {
+            try { rc.releaseButton(ButtonType.SIRI); } catch (e) { /* already released */ }
+            session = null;
+          }, 250);
           return;
         }
         pushPcm(pcm.subarray(off, off + FRAME_BYTES));

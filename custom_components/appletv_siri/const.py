@@ -11,6 +11,7 @@ CONF_ASSIST_PIPELINE = "assist_pipeline"
 CONF_FALLBACK_TO_SIRI = "fallback_to_siri"
 CONF_MAX_BUFFER_SECONDS = "max_buffer_seconds"
 CONF_TTS_ENGINE = "tts_engine"
+CONF_SOURCES = "sources"
 
 DEFAULT_BRIDGE_URL = "http://127.0.0.1:8477"
 

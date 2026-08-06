@@ -289,6 +289,45 @@ That entity also carries `siri_available`, `data_streams` and `recovering` as
 attributes, so an automation can notice voice being unavailable rather than
 discovering it when an utterance goes nowhere.
 
+### Multiple microphones
+
+Name each one and say which it is in the URL:
+
+```
+POST /api/appletv_siri/audio?source=bedroom
+```
+
+```yaml
+appletv_siri:
+  target: 207551296          # default for anything unnamed
+  sources:
+    living_room:
+      target: 207551296
+    bedroom:
+      target: 35040583
+      # A source can override routing too, so one room can prefer Assist
+      # while another goes to Siri:
+      # siri_when:
+      #   entity: input_select.bedroom_activity
+      #   states: ["Watch Apple TV"]
+```
+
+`source` is an **identity** claim — "I am the bedroom remote" — not a routing
+decision. Where "bedroom" points stays in Home Assistant, so replacing an Apple
+TV is one edit here rather than reconfiguring every remote in the house. That
+matters because the identifiers are assigned by tvOS and change when a device is
+replaced or re-paired.
+
+An unrecognised `source` falls back to the default target and logs a warning
+naming the ones it knows, so a typo doesn't silently talk to the wrong room.
+
+**One utterance at a time.** HomeKit supports a single Siri audio session, and
+the SIRI button and active target are both single-valued, so overlapping
+utterances cannot be delivered however this is written. A second request waits
+briefly for the first to finish and then gets a clean `409` — rather than
+interleaving its audio into the first one's stream, which is what a naive
+implementation does.
+
 ## The one quirk worth understanding
 
 Siri audio doesn't ride the HomeKit connection. It rides a **HomeKit Data
@@ -356,6 +395,7 @@ the bridge directly.
 | `target` | *(bridge's active target)* | Apple TV identifier from `/state` |
 | `siri_when.entity` / `.states` | *(absent)* | Route to Siri while entity is in one of these states. **Absent means everything goes to Siri** |
 | `tts_engine` | *(HA default)* | Engine for `say`. Pin it — HA's default is the Cloud engine, which fails when signed out |
+| `sources` | `{}` | Named microphones; each may set `target`, `siri_when`, `assist_pipeline`. Selected with `?source=<name>` |
 | `assist_pipeline` | *(HA default)* | **Pin this.** HA's default pipeline has no STT engine, and an unpinned pipeline silently returns nothing |
 | `fallback_to_siri` | `false` | Assist first, Siri if it can't handle it (buffers) |
 | `max_buffer_seconds` | `15` | Ceiling on a buffered utterance |
@@ -367,7 +407,8 @@ the bridge directly.
 - **The Apple TV must be awake** to respond to voice.
 - Target *names* come back garbled (a TLV parsing quirk in hap-nodejs); the
   identifiers are correct, which is what matters.
-- One utterance at a time per Apple TV.
+- One utterance at a time, across all Apple TVs — a HomeKit limitation, not an
+  implementation choice (see [Multiple microphones](#multiple-microphones)).
 - Not affiliated with or endorsed by Apple. "Siri", "Apple TV" and "HomeKit" are
   trademarks of Apple Inc.
 

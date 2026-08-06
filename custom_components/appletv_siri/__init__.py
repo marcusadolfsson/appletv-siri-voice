@@ -47,6 +47,7 @@ from .const import (
     CONF_FALLBACK_TO_SIRI,
     CONF_MAX_BUFFER_SECONDS,
     CONF_SIRI_WHEN,
+    CONF_SOURCES,
     CONF_STATES,
     CONF_TARGET,
     DEFAULT_BRIDGE_URL,
@@ -68,10 +69,23 @@ SIRI_WHEN_SCHEMA = vol.Schema(
     }
 )
 
+# A named microphone. `source` in the URL is an IDENTITY claim ("I am the
+# bedroom remote"), not a routing decision — where "bedroom" points stays here,
+# so replacing an Apple TV means editing this block rather than reconfiguring
+# every remote in the house.
+SOURCE_SCHEMA = vol.Schema(
+    {
+        vol.Optional(CONF_TARGET): vol.Coerce(int),
+        vol.Optional(CONF_SIRI_WHEN): SIRI_WHEN_SCHEMA,
+        vol.Optional(CONF_ASSIST_PIPELINE): cv.string,
+    }
+)
+
 CONFIG_SCHEMA = vol.Schema(
     {
         DOMAIN: vol.Schema(
             {
+                vol.Optional(CONF_SOURCES, default={}): {cv.string: SOURCE_SCHEMA},
                 vol.Optional(CONF_BRIDGE_URL, default=DEFAULT_BRIDGE_URL): cv.string,
                 vol.Optional(CONF_TARGET): vol.Coerce(int),
                 vol.Optional(CONF_SIRI_WHEN): SIRI_WHEN_SCHEMA,
@@ -199,45 +213,60 @@ class SiriRemoteAudioView(HomeAssistantView):
         self._bridge = bridge
         self._conf = conf
 
-    def _route_is_siri(self) -> bool:
+    def _settings_for(self, source: str | None) -> dict[str, Any]:
+        """Config for this microphone: its own keys, falling back to the global ones."""
+        if not source:
+            return self._conf
+        src = (self._conf.get(CONF_SOURCES) or {}).get(source)
+        if src is None:
+            _LOGGER.warning(
+                "Unknown source %r; using the default target. Known sources: %s",
+                source, sorted(self._conf.get(CONF_SOURCES) or {}) or "none configured",
+            )
+            return self._conf
+        return {**self._conf, **{k: v for k, v in src.items() if v is not None}}
+
+    def _route_is_siri(self, conf: dict[str, Any] | None = None) -> bool:
         """Where this utterance should go.
 
         With no `siri_when` rule everything goes to Siri — that is the whole
         point of the integration, and routing to Assist is the opt-in extra.
         """
-        rule = self._conf.get(CONF_SIRI_WHEN)
+        conf = conf or self._conf
+        rule = conf.get(CONF_SIRI_WHEN)
         if not rule:
             return True
         state = self._hass.states.get(rule[CONF_ENTITY])
         return bool(state and state.state in rule[CONF_STATES])
 
     async def post(self, request: web.Request) -> web.Response:
+        conf = self._settings_for(request.query.get("source"))
         route = request.query.get("route")
-        to_siri = route == "siri" or (route is None and self._route_is_siri())
+        to_siri = route == "siri" or (route is None and self._route_is_siri(conf))
 
         if to_siri:
-            return await self._to_siri(request.content)
+            return await self._to_siri(request.content, conf)
 
         # Assist. With fallback enabled the audio must be buffered, because a
         # stream can only be consumed once and Siri may need the same bytes.
-        if self._conf.get(CONF_FALLBACK_TO_SIRI):
-            cap = self._conf.get(CONF_MAX_BUFFER_SECONDS, 15) * 1000 * BYTES_PER_MS
+        if conf.get(CONF_FALLBACK_TO_SIRI):
+            cap = conf.get(CONF_MAX_BUFFER_SECONDS, 15) * 1000 * BYTES_PER_MS
             audio = await self._read_capped(request, cap)
-            result = await self._run_assist(_chunks(audio))
+            result = await self._run_assist(_chunks(audio), conf)
             if result.get("handled"):
                 return self.json({"route": "assist", **result["payload"]})
             _LOGGER.debug("Assist did not handle the utterance; forwarding to Siri")
-            resp = await self._to_siri(audio)
+            resp = await self._to_siri(audio, conf)
             # Report both so a client can show what actually happened.
             return resp
 
         return self.json({"route": "assist", **(await self._run_assist(
-            _stream(request)
+            _stream(request), conf
         ))["payload"]})
 
-    async def _to_siri(self, audio: Any) -> web.Response:
+    async def _to_siri(self, audio: Any, conf: dict[str, Any]) -> web.Response:
         try:
-            result = await self._bridge.speak(audio, self._conf.get(CONF_TARGET))
+            result = await self._bridge.speak(audio, conf.get(CONF_TARGET))
         except BridgeUnavailable as err:
             # The bridge is re-establishing the Apple TV's data stream. This is
             # expected for about a minute after the bridge restarts.
@@ -260,8 +289,11 @@ class SiriRemoteAudioView(HomeAssistantView):
                 break
         return bytes(buf)
 
-    async def _run_assist(self, audio: AsyncIterable[bytes]) -> dict[str, Any]:
+    async def _run_assist(
+        self, audio: AsyncIterable[bytes], conf: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """Run the Assist pipeline; report whether it actually handled anything."""
+        conf = conf or self._conf
         events: dict[str, Any] = {}
 
         def _on_event(event: Any) -> None:
@@ -282,7 +314,7 @@ class SiriRemoteAudioView(HomeAssistantView):
                     channel=stt.AudioChannels.CHANNEL_MONO,
                 ),
                 stt_stream=audio,
-                pipeline_id=self._conf.get(CONF_ASSIST_PIPELINE),
+                pipeline_id=conf.get(CONF_ASSIST_PIPELINE),
             )
         except Exception as err:  # noqa: BLE001 — surface anything to the client
             _LOGGER.exception("Assist route failed")
@@ -301,7 +333,7 @@ class SiriRemoteAudioView(HomeAssistantView):
             _LOGGER.warning(
                 "Assist produced no transcript (pipeline=%s). If that pipeline has no "
                 "speech-to-text engine, set assist_pipeline: to one that does.",
-                self._conf.get(CONF_ASSIST_PIPELINE) or "<default>",
+                conf.get(CONF_ASSIST_PIPELINE) or "<default>",
             )
 
         code = response.get("data", {}).get("code")
