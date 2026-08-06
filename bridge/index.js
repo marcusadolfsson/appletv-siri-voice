@@ -244,12 +244,28 @@ async function recoverHds(reason) {
     await publishAccessory(false);                       // capability removed
     await sleep(RECOVERY_PHASE1_MS);                     // let tvOS notice
     await publishAccessory(true);                        // capability restored
-    const ok = await waitFor(hasHds, RECOVERY_WAIT_MS);
+    // Same distinction superviseHds draws: once an Apple TV has claimed the
+    // remote, only ITS stream counts — a healthy stream to another Apple TV
+    // must not look like success. Before anything is selected (boot), any
+    // stream is the honest signal.
+    const recovered = () => {
+      const target = activeTarget();
+      return target != null ? hasHdsFor(target) : hdsTargets().length > 0;
+    };
+    const ok = await waitFor(recovered, RECOVERY_WAIT_MS);
     log(ok
       ? `[recover] data stream restored after ${Math.round((Date.now() - started) / 1000)}s: ${hdsTargets()}`
       : '[recover] FAILED — no data stream. If this persists, restart the Apple TV.');
     lastRecovery = Date.now();
     return ok;
+  } catch (err) {
+    // Recovery must never take the process down with it. Siri is the only thing
+    // at stake here; buttons keep working, and the supervisor will try again on
+    // the next tick. Before this, a throw in here became an unhandled rejection
+    // that killed the bridge and dropped button control too.
+    log(`[recover] error — ${err && err.stack ? err.stack : err}`);
+    lastRecovery = Date.now();
+    return false;
   } finally {
     recovering = false;
   }
