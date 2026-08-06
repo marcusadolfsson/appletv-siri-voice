@@ -69,8 +69,9 @@ itself, not something Apple verifies.
   integration's connection is asleep or wedged.
 - **Written commands** (`appletv_siri.say`) — Home Assistant speaks the text for
   you, so an automation can tell Siri something without a microphone.
-- **Multiple Apple TVs on one bridge** — each becomes a device with its own
-  buttons and its own say-to-Siri box, so nothing has to be "selected" first.
+- **Multiple Apple TVs on one bridge and one pairing** — each becomes a device
+  with its own URL, its own buttons and its own say-to-Siri box, so a microphone
+  only has to know which room it is in.
 - **Optional routing** to Assist if you already run a local assistant.
 
 ## Requirements
@@ -278,6 +279,25 @@ It is one state lookup, so there is no latency and no guessing at meaning.
 > speech-to-text engine, so an unpinned one accepts the audio and silently
 > returns nothing.
 
+#### Per-microphone routing
+
+`?route=` covers most of it, but a microphone can also be given a name with its
+own rule — useful when one room should follow a different condition entirely:
+
+```yaml
+appletv_siri:
+  sources:
+    bedroom:
+      target: 35040583
+      siri_when:
+        entity: input_select.bedroom_activity
+        states: ["Watch Apple TV"]
+```
+
+```
+POST /api/appletv_siri/audio?source=bedroom
+```
+
 #### Forcing a route
 
 `?route=` overrides the rule for a single utterance:
@@ -380,99 +400,7 @@ appletv_siri:
   tts_engine: tts.google_translate_en_com
 ```
 
-### Multiple Apple TVs
-
-**One bridge covers them all.** tvOS pushes every Apple TV in the home to the
-accessory as a separate target, so you do not run a bridge per device. (For
-pointing *microphones* at them, see
-[Multiple microphones](#multiple-microphones) — each Apple TV has its own URL.)
-
-Each one becomes a **device** with its own entities, so you address it directly
-rather than selecting it first:
-
-```yaml
-- action: button.press
-  target:
-    entity_id: button.bedroom_home
-
-- action: text.set_value
-  target:
-    entity_id: text.say_to_siri_bedroom
-  data:
-    value: "Play the next episode"
-```
-
-Services take a target too, which is what automations usually want:
-
-```yaml
-- action: appletv_siri.say
-  data:
-    target: 35040583
-    text: "Pause"
-```
-
-**There is no default Apple TV.** Every command names its own — in the URL, or
-as a `target` on the service call. A default would be hidden state deciding
-where your words end up, and getting that wrong is worse than typing a name.
-
-POST to `/api/appletv_siri/audio` with no Apple TV and it refuses, listing the
-URLs that would have worked:
-
-```json
-{
-  "error": "no Apple TV specified",
-  "hint": "POST to /api/appletv_siri/audio/<name or identifier>",
-  "apple_tvs": {
-    "Living Room": "/api/appletv_siri/audio/living_room",
-    "Bedroom": "/api/appletv_siri/audio/bedroom"
-  }
-}
-```
-
-(The bridge does keep one "active target" underneath, because HomeKit's Active
-Identifier characteristic is single-valued. Every call sets it as part of the
-same request, so it never becomes something you manage.)
-
-### Multiple microphones
-
-Give each one the URL of the Apple TV in its room:
-
-```
-kitchen tablet   → /api/appletv_siri/audio/kitchen
-bedroom remote   → /api/appletv_siri/audio/bedroom
-```
-
-That is the whole configuration. The URL is the address, so a microphone holds
-no state and makes no decision — replacing an Apple TV changes nothing on the
-device, because the name stays the same even though the identifier tvOS assigns
-does not.
-
-`sensor.apple_tv_bridge` lists the URL for each Apple TV.
-
-#### Advanced: named sources
-
-Only needed if a microphone wants **different routing** rather than a different
-Apple TV — one room following its own rule while another always goes to Siri:
-
-```yaml
-appletv_siri:
-  sources:
-    bedroom:
-      target: 35040583
-      siri_when:
-        entity: input_select.bedroom_activity
-        states: ["Watch Apple TV"]
-```
-
-```
-POST /api/appletv_siri/audio?source=bedroom
-```
-
-A source that isn't recognised logs a warning naming the ones that are — and
-since there is no default Apple TV, the request is refused rather than quietly
-talking to the wrong room.
-
-### Simultaneous conversations — the one real limitation
+## Simultaneous conversations — the one real limitation
 
 **Only one utterance can be in flight at a time, across all Apple TVs.** A
 second request waits up to 4 seconds for the first to finish and then gets a
@@ -500,7 +428,7 @@ session. Its own source leaves the question open:
 Note that the **data streams are already per-Apple-TV** — a bridge serving two
 holds two open concurrently. Only the controller layer above them serializes.
 
-#### Workaround: one bridge per Apple TV
+### Workaround: one bridge per Apple TV
 
 Run a second container with its own HomeKit identity and pair it separately. You
 get one accessory, and one setup code, per Apple TV:
@@ -522,7 +450,7 @@ get one accessory, and one setup code, per Apple TV:
 The cost is a second pairing to manage and a second setup code, which is why it
 is not the default.
 
-#### The better fix, if it ever proves necessary
+### The better fix, if it ever proves necessary
 
 Multiple Target Control service instances **inside one bridge** — one per Apple
 TV, each with its own `Active Identifier` and `Button Event` — plus keying the
