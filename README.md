@@ -146,23 +146,7 @@ That is the whole setup — there is no default Apple TV to choose, because ever
 command names its own.
 
 Each Apple TV becomes a **device** with its own buttons and its own say-to-Siri
-box, and each gets its own URL for microphones to POST to.
-`sensor.apple_tv_bridge` lists them, so there is nothing to look up or
-construct:
-
-```yaml
-apple_tvs:
-  "207551296":
-    name: Living Room
-    identifier: 207551296
-    voice_ready: true                              # has a live data stream
-    voice_url: /api/appletv_siri/audio/living_room
-  "35040583":
-    name: Bedroom
-    identifier: 35040583
-    voice_ready: true
-    voice_url: /api/appletv_siri/audio/bedroom
-```
+box.
 
 > **On the speech engine:** `google_translate` is one of four integrations Home
 > Assistant sets up automatically during onboarding, so an engine usually exists
@@ -328,22 +312,21 @@ Each Apple TV is a **device**, so its entities are grouped under it and the
 names stay short. The three bridge-wide entities sit under an "Apple TV Siri
 bridge" device.
 
-`sensor.apple_tv_bridge` carries the details, including the identifiers that
-`sources:` needs:
+`sensor.apple_tv_bridge` carries the details — the URL to POST audio to for each
+Apple TV, and the identifiers that services and `sources:` take:
 
 ```yaml
 apple_tvs:
   "207551296":
     name: Living Room
     identifier: 207551296
-    configured: true
-    voice_ready: true      # has a live data stream
+    voice_ready: true                              # has a live data stream
+    voice_url: /api/appletv_siri/audio/living_room
   "35040583":
     name: Bedroom
     identifier: 35040583
-    configured: true
     voice_ready: true
-active_identifier: 207551296
+    voice_url: /api/appletv_siri/audio/bedroom
 siri_available: true
 recovering: false
 ```
