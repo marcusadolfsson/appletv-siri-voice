@@ -10,13 +10,7 @@ TV exactly as they would from the remote in your hand:
 > *"Open Netflix"* · *"Turn on subtitles"*
 
 Or send text instead, and Home Assistant relays it for you — so an automation
-can talk to the Siri on the Apple TV with no microphone in the loop at all:
-
-```yaml
-- action: appletv_siri.say
-  data:
-    text: "Play Slow Horses"
-```
+can talk to the Siri on the Apple TV with no microphone in the loop at all.
 
 This project makes Home Assistant appear to your Apple TV as a **HomeKit
 remote** — the same accessory profile Crestron's TSR-310 uses — so it can stream
