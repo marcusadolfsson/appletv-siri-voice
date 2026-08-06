@@ -200,7 +200,6 @@ and it needs to know nothing else:
 ```
 /api/appletv_siri/audio/living_room     ← by name
 /api/appletv_siri/audio/207551296       ← or by identifier
-/api/appletv_siri/audio                 ← or the default Apple TV
 ```
 
 The exact URLs are listed on `sensor.apple_tv_bridge`, so there is nothing to
