@@ -8,19 +8,13 @@ as if you had held the button on the Siri Remote:
 > *"Skip the intro"* · *"What did she say?"* · *"Play the next episode"* ·
 > *"Open Netflix"* · *"Turn on subtitles"*
 
-Or send text instead, and Home Assistant speaks it for you — so an automation
-can talk to the TV with no microphone in the loop at all:
+Or send text instead, and Home Assistant relays it for you — so an automation
+can talk to the Siri on the Apple TV with no microphone in the loop at all:
 
 ```yaml
 - action: appletv_siri.say
   data:
     text: "Play Slow Horses"
-
-# Any Apple TV in the house, by name in the UI or by id in an automation
-- action: appletv_siri.say
-  data:
-    target: 35040583          # the bedroom Apple TV
-    text: "Pause"
 ```
 
 Both paths reach the same place. This project makes Home Assistant appear to
