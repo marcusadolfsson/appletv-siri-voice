@@ -35,21 +35,34 @@ with an ordinary 8-digit setup code.
 -->
 
 ```
-  microphone           Home Assistant            bridge              Apple TV
-  (anything) ──POST──▶ /api/appletv_siri/audio ─▶ HomeKit ──────────▶ Siri
-                                                  Target Control
-  or just text ──────▶ appletv_siri.say ─────────▶ (spoken for you)
+  living room mic ──▶ POST /api/appletv_siri/audio/living_room ─┐
+  bedroom mic ──────▶ POST .../audio/bedroom ───────────────────┤
+  automation ───────▶ appletv_siri.say  (spoken for you) ───────┤
+                                                                │
+                                              Home Assistant ───┘
+                                                    │
+                                                    ▼
+                                            bridge (HomeKit
+                                            Target Control)
+                                                    │
+                                    ┌───────────────┴───────────────┐
+                                    ▼                               ▼
+                            Living Room Apple TV            Bedroom Apple TV
+                                  → Siri                        → Siri
 ```
+
+One bridge, one pairing in the Home app. Each Apple TV gets its own URL, so a
+microphone only has to know which room it is in.
 
 ## Why this exists
 
-Siri knows things a house assistant cannot: what is playing, who is in it, where
-you are in it. Until now there was no way to reach it from Home Assistant at
-all — you could automate the whole house and still not ask the TV to skip the
+Siri knows things a house assistant cannot: what is playing, who is in it, and
+where you are in it. Until now there was no way to reach it from Home Assistant
+at all — you could automate an entire house and still not ask the TV to skip the
 intro.
 
 By default **every utterance goes to Siri**. If you already run Assist or a
-local LLM, you can route some utterances there instead — see
+local LLM, some utterances can go there instead — see
 [Sharing a microphone with Assist](#sharing-a-microphone-with-assist), which is
 a secondary use case rather than the point.
 
@@ -387,7 +400,9 @@ appletv_siri:
 ### Multiple Apple TVs
 
 **One bridge covers them all.** tvOS pushes every Apple TV in the home to the
-accessory as a separate target, so you do not run a bridge per device.
+accessory as a separate target, so you do not run a bridge per device. (For
+pointing *microphones* at them, see
+[Multiple microphones](#multiple-microphones) — each Apple TV has its own URL.)
 
 Each one becomes a **device** with its own entities, so you address it directly
 rather than selecting it first:
