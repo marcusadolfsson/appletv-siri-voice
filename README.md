@@ -156,26 +156,6 @@ box.
 > because Home Assistant's *default* is the Cloud engine and it fails opaquely
 > when the account is signed out.
 
-#### Do you need YAML? Probably not
-
-The dialog covers everything required to send voice to Siri. `configuration.yaml`
-adds exactly one capability: sending *some* utterances to Assist instead of Siri.
-Skip it unless you run a local assistant.
-
-It is not an alternative to the UI — a YAML block is adopted into the same
-integration automatically, and sits on top of the settings from the dialog:
-
-```yaml
-appletv_siri:
-  # Send utterances to Assist unless the TV is what you're looking at.
-  siri_when:
-    entity: input_select.living_room_activity
-    states: ["Watch Apple TV"]
-  assist_pipeline: 01abcdef...
-```
-
-See [Sharing a microphone with Assist](#sharing-a-microphone-with-assist).
-
 ### 4. Send it audio
 
 **Every Apple TV has its own URL.** Point a microphone at the one in its room
@@ -250,8 +230,14 @@ because it can see what's playing:
 is no `siri_when` rule and everything goes to Siri, which is what most people
 want.
 
-If you do run one, the useful split is **by what the person is looking at**, not
-by what they said:
+**This is the only thing `configuration.yaml` is for.** Setup is a UI dialog and
+routing is the one capability it does not cover, because the rules are nested
+and awkward in a form. YAML is not an alternative to the UI — a block is adopted
+into the same integration automatically and sits on top of the settings from the
+dialog.
+
+If you do run an assistant, the useful split is **by what the person is looking
+at**, not by what they said:
 
 - **TV is on and in front of them → Siri.** It has the media context. "Skip
   the intro", "who plays her", "put on the next episode" are things only the
@@ -260,7 +246,16 @@ by what they said:
   no cloud round-trip and no Apple account involved.
 
 That's what `siri_when` expresses, and it's one state lookup — no latency, no
-guessing at meaning.
+guessing at meaning:
+
+```yaml
+appletv_siri:
+  # Everything goes to Siri while the TV is the activity; Assist otherwise.
+  siri_when:
+    entity: input_select.living_room_activity
+    states: ["Watch Apple TV"]
+  assist_pipeline: 01abcdef...     # pin one that has speech-to-text
+```
 
 ### Optional: chain them
 
