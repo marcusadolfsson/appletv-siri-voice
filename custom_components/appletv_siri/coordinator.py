@@ -1,7 +1,7 @@
 """Shared polling of the bridge.
 
-One poll feeds every entity. Without this the select, the sensor and the binary
-sensor would each hit the bridge on their own schedule for the same JSON.
+One poll feeds every entity. Without this the sensor, the binary sensors and
+the buttons would each hit the bridge on their own schedule for the same JSON.
 """
 
 from __future__ import annotations

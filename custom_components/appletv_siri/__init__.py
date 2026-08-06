@@ -58,7 +58,6 @@ from .const import (
     SERVICE_PRESS,
     SERVICE_RECOVER,
     SERVICE_SAY,
-    SERVICE_SET_TARGET,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -88,7 +87,6 @@ CONFIG_SCHEMA = vol.Schema(
             {
                 vol.Optional(CONF_SOURCES, default={}): {cv.string: SOURCE_SCHEMA},
                 vol.Optional(CONF_BRIDGE_URL, default=DEFAULT_BRIDGE_URL): cv.string,
-                vol.Optional(CONF_TARGET): vol.Coerce(int),
                 vol.Optional(CONF_SIRI_WHEN): SIRI_WHEN_SCHEMA,
                 vol.Optional(CONF_ASSIST_PIPELINE): cv.string,
                 vol.Optional(CONF_FALLBACK_TO_SIRI, default=False): cv.boolean,
@@ -103,7 +101,7 @@ CONFIG_SCHEMA = vol.Schema(
 )
 
 
-PLATFORMS = ["binary_sensor", "button", "select", "sensor", "text"]
+PLATFORMS = ["binary_sensor", "button", "sensor", "text"]
 
 # Routing keys that stay in YAML: they are nested and awkward in a config form,
 # and they are merged over whatever the config entry holds.
@@ -133,15 +131,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up from a config entry (created by the UI, or imported from YAML)."""
     yaml_conf = (hass.data.get(DOMAIN) or {}).get("yaml", {})
     # Entry holds the connection settings; YAML contributes routing on top.
+    # CONF_TARGET is filtered out: there is no default Apple TV any more, and an
+    # entry imported before that change still carries one. Only `sources` may
+    # name a target, and the URL always can.
     conf: dict[str, Any] = {
-        **{k: v for k, v in entry.data.items() if v is not None},
-        **{k: v for k, v in entry.options.items() if v is not None},
+        **{k: v for k, v in entry.data.items() if v is not None and k != CONF_TARGET},
+        **{k: v for k, v in entry.options.items() if v is not None and k != CONF_TARGET},
         **{k: v for k, v in yaml_conf.items() if k in YAML_ONLY},
     }
-    # A target set in YAML still wins, so an existing setup behaves as before.
-    if yaml_conf.get(CONF_TARGET) is not None:
-        conf[CONF_TARGET] = yaml_conf[CONF_TARGET]
-
     bridge = Bridge(
         async_get_clientsession(hass), conf.get(CONF_BRIDGE_URL, DEFAULT_BRIDGE_URL)
     )
@@ -175,35 +172,30 @@ def _register_services(hass: HomeAssistant, bridge: Bridge, conf: dict[str, Any]
         return
 
     async def _press(call: ServiceCall) -> None:
-        await bridge.press(call.data[ATTR_BUTTON], call.data.get(ATTR_TARGET))
-
-    async def _set_target(call: ServiceCall) -> None:
-        await bridge.set_target(call.data[ATTR_TARGET])
+        await bridge.press(call.data[ATTR_BUTTON], call.data[ATTR_TARGET])
 
     async def _recover(call: ServiceCall) -> None:
         await bridge.recover()
 
     async def _say(call: ServiceCall) -> None:
         pcm = await _text_to_pcm(hass, call.data[ATTR_TEXT], conf.get(CONF_TTS_ENGINE))
-        await bridge.speak(pcm, call.data.get(ATTR_TARGET) or conf.get(CONF_TARGET))
+        await bridge.speak(pcm, call.data[ATTR_TARGET])
 
     hass.services.async_register(
         DOMAIN, SERVICE_PRESS, _press,
         schema=vol.Schema({
             vol.Required(ATTR_BUTTON): vol.In(BUTTONS),
-            vol.Optional(ATTR_TARGET): vol.Coerce(int),
+            # Required: there is no default Apple TV. Naming the destination is
+            # cheaper than a hidden mode that decides it for you.
+            vol.Required(ATTR_TARGET): vol.Coerce(int),
         }),
-    )
-    hass.services.async_register(
-        DOMAIN, SERVICE_SET_TARGET, _set_target,
-        schema=vol.Schema({vol.Required(ATTR_TARGET): vol.Coerce(int)}),
     )
     hass.services.async_register(DOMAIN, SERVICE_RECOVER, _recover, schema=vol.Schema({}))
     hass.services.async_register(
         DOMAIN, SERVICE_SAY, _say,
         schema=vol.Schema({
             vol.Required(ATTR_TEXT): cv.string,
-            vol.Optional(ATTR_TARGET): vol.Coerce(int),
+            vol.Required(ATTR_TARGET): vol.Coerce(int),
         }),
     )
 
@@ -272,6 +264,16 @@ class SiriRemoteAudioView(HomeAssistantView):
         self._bridge = bridge
         self._conf = conf
 
+    def _known_urls(self) -> dict[str, str]:
+        """The URLs that would have worked, for the error message."""
+        coordinator = (self._hass.data.get(DOMAIN) or {}).get("coordinator")
+        if not coordinator:
+            return {}
+        return {
+            coordinator.clean_name(i): coordinator.voice_url(i)
+            for i in coordinator.targets
+        }
+
     def _resolve(self, target: str | None) -> int | None:
         """Accept an identifier or a name slug from the URL.
 
@@ -323,9 +325,16 @@ class SiriRemoteAudioView(HomeAssistantView):
 
     async def post(self, request: web.Request, target: str | None = None) -> web.Response:
         conf = self._settings_for(request.query.get("source"))
-        # The URL wins over anything configured: it names the Apple TV directly.
+        # The URL names the Apple TV. There is no default: an utterance with no
+        # destination is a mistake worth reporting, not something to guess at.
         if (resolved := self._resolve(target)) is not None:
             conf = {**conf, CONF_TARGET: resolved}
+        if conf.get(CONF_TARGET) is None:
+            return self.json({
+                "error": "no Apple TV specified",
+                "hint": "POST to /api/appletv_siri/audio/<name or identifier>",
+                "apple_tvs": self._known_urls(),
+            }, status_code=400)
         route = request.query.get("route")
         to_siri = route == "siri" or (route is None and self._route_is_siri(conf))
 

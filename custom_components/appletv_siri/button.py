@@ -1,9 +1,8 @@
 """One set of remote keys per Apple TV.
 
-Per Apple TV rather than one shared set, because a single set would act on
-whichever target happened to be selected — so driving a second Apple TV would
-mean flipping a selector first and then pressing, with the state shared between
-them. Each button here names its own target, and the press is a single call.
+Per Apple TV rather than one shared set: a shared set would have to act on some
+"current" Apple TV, which is hidden state and the wrong model for things that
+are independent. Each button names its own target, and the press is one call.
 """
 
 from __future__ import annotations

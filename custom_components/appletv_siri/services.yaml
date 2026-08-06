@@ -14,22 +14,15 @@ press:
           options: [MENU, PLAY_PAUSE, TV_HOME, SELECT, ARROW_UP, ARROW_RIGHT,
                     ARROW_DOWN, ARROW_LEFT, VOLUME_UP, VOLUME_DOWN, SIRI, POWER, GENERIC]
     target:
-      name: Target
-      description: Apple TV identifier. Defaults to the currently active one.
-      example: 207551296
-      selector:
-        number: {mode: box, min: 0, max: 4294967295}
-
-set_target:
-  name: Set target
-  description: Choose which Apple TV subsequent buttons and voice go to.
-  fields:
-    target:
-      name: Target
+      name: Apple TV
+      description: >-
+        Which Apple TV. Required — there is no default, so a command always says
+        where it is going. Identifiers are listed on sensor.apple_tv_bridge.
       required: true
       example: 207551296
       selector:
         number: {mode: box, min: 0, max: 4294967295}
+
 
 recover:
   name: Recover voice
@@ -54,8 +47,11 @@ say:
       selector:
         text:
     target:
-      name: Target
-      description: Apple TV identifier. Defaults to the currently active one.
+      name: Apple TV
+      description: >-
+        Which Apple TV. Required — there is no default, so a command always says
+        where it is going. Identifiers are listed on sensor.apple_tv_bridge.
+      required: true
       example: 207551296
       selector:
         number:

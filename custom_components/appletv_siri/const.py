@@ -20,7 +20,6 @@ SAMPLE_RATE = 16000
 BYTES_PER_MS = 32
 
 SERVICE_PRESS = "press"
-SERVICE_SET_TARGET = "set_target"
 SERVICE_RECOVER = "recover"
 SERVICE_SAY = "say"
 

@@ -141,64 +141,56 @@ Copy `custom_components/appletv_siri/` into your Home Assistant `config/`
 directory (or add this repo to HACS as a custom repository) and restart, then
 **Settings → Devices & Services → Add Integration → Apple TV Siri Voice**.
 
-It asks for the bridge URL, then offers your Apple TVs by name — read from the
-bridge, so there are no identifiers to look up — and optionally a speech engine
-for written commands. Each Apple TV becomes a **device** with its own buttons
-and its own say-to-Siri box.
+It asks for the bridge URL, and optionally a speech engine for written commands.
+That is the whole setup — there is no default Apple TV to choose, because every
+command names its own.
 
-Everything is editable afterwards from the integration's **Configure** button.
-
-#### Or configure it in YAML
-
-Routing (`sources`, `siri_when`, `assist_pipeline`) is YAML-only, because it is
-nested and awkward in a form. A YAML block is adopted into a config entry
-automatically the first time, so both can be used together — YAML routing on top
-of the connection settings from the UI:
-
-```yaml
-appletv_siri:
-  tts_engine: tts.google_translate_en_com
-  sources:
-    living_room: { target: 207551296 }
-    bedroom:     { target: 35040583 }
-```
-
-> `google_translate` is one of four integrations Home Assistant sets up
-> automatically during onboarding, so this entity usually exists already — but
-> the id varies by language and domain (`tts.google_translate_de_de` and so on).
-> Check Settings → Devices & Services → Entities and filter for `tts.`. Any
-> engine works; pin one explicitly, because Home Assistant's *default* is the
-> Cloud engine and it fails opaquely when the account is signed out. That is genuinely all of it: with one Apple TV, voice
-goes to it and there is nothing else to configure.
-
-**With more than one Apple TV**, open **`sensor.apple_tv_bridge`** in
-Developer Tools → States. Its attributes list every Apple TV the bridge can see:
+Each Apple TV becomes a **device** with its own buttons and its own say-to-Siri
+box, and each gets its own URL for microphones to POST to.
+`sensor.apple_tv_bridge` lists them, so there is nothing to look up or
+construct:
 
 ```yaml
 apple_tvs:
   "207551296":
     name: Living Room
     identifier: 207551296
-    voice_ready: true
+    voice_ready: true                              # has a live data stream
+    voice_url: /api/appletv_siri/audio/living_room
   "35040583":
     name: Bedroom
     identifier: 35040583
     voice_ready: true
+    voice_url: /api/appletv_siri/audio/bedroom
 ```
 
-Use those identifiers to pin a default, and to name each microphone:
+> **On the speech engine:** `google_translate` is one of four integrations Home
+> Assistant sets up automatically during onboarding, so an engine usually exists
+> already — but the entity id varies by language and domain
+> (`tts.google_translate_de_de` and so on). Check Settings → Devices & Services
+> → Entities and filter for `tts.`. Any engine works; pin one explicitly,
+> because Home Assistant's *default* is the Cloud engine and it fails opaquely
+> when the account is signed out.
+
+#### Do you need YAML? Probably not
+
+The dialog covers everything required to send voice to Siri. `configuration.yaml`
+adds exactly one capability: sending *some* utterances to Assist instead of Siri.
+Skip it unless you run a local assistant.
+
+It is not an alternative to the UI — a YAML block is adopted into the same
+integration automatically, and sits on top of the settings from the dialog:
 
 ```yaml
 appletv_siri:
-  tts_engine: tts.google_translate_en_com
-  target: 207551296          # default Apple TV
-  sources:
-    living_room: { target: 207551296 }
-    bedroom:     { target: 35040583 }
+  # Send utterances to Assist unless the TV is what you're looking at.
+  siri_when:
+    entity: input_select.living_room_activity
+    states: ["Watch Apple TV"]
+  assist_pipeline: 01abcdef...
 ```
 
-You can also switch target at any time from `select.apple_tv_target` rather than
-editing YAML.
+See [Sharing a microphone with Assist](#sharing-a-microphone-with-assist).
 
 ### 4. Send it audio
 
@@ -316,8 +308,9 @@ your pipeline is a chatty LLM, prefer `siri_when`.
 |---|---|
 | `appletv_siri.say` | Speak text to Siri — no microphone needed |
 | `appletv_siri.press` | Send a button (`TV_HOME`, `ARROW_UP`, `PLAY_PAUSE`, …) |
-| `appletv_siri.set_target` | Choose which Apple TV gets buttons and voice |
-| `appletv_siri.recover` | Force the Apple TV to reopen its voice data stream |
+| `appletv_siri.recover` | Force the Apple TVs to reopen their voice data streams |
+
+`say` and `press` both require a `target`.
 
 ### Entities
 
@@ -329,7 +322,6 @@ before it can be used:
 | `text.say_to_siri_<apple tv>` | Type a command, press enter, Siri on **that** Apple TV hears it. The box clears afterwards, because it is an action rather than a setting |
 | `button.<apple tv>_home` / `_menu` / `_select` / `_play_pause` | The keys worth one tap; everything else is `appletv_siri.press` |
 | `binary_sensor.<apple tv>_siri_voice_available` | Whether voice works for that Apple TV right now |
-| `select.apple_tv_target` | The **default** Apple TV — used only by `/audio` with no Apple TV in the URL, and by services called without a `target` |
 | `sensor.apple_tv_bridge` | How many Apple TVs the bridge can see, and everything about them |
 | `button.recover_siri_voice` | Rebuild the voice data stream by hand (bridge-wide) |
 
@@ -423,14 +415,27 @@ Services take a target too, which is what automations usually want:
     text: "Pause"
 ```
 
-`select.apple_tv_target` sets the **default** — used only by `/audio` with no
-Apple TV named in the URL, and by services called without a `target`. It is a
-fallback, not a mode: you never have to select an Apple TV before acting on it.
+**There is no default Apple TV.** Every command names its own — in the URL, or
+as a `target` on the service call. A default would be hidden state deciding
+where your words end up, and getting that wrong is worse than typing a name.
 
-(The bridge does have a single "active target" underneath, because HomeKit's
-Active Identifier characteristic is single-valued. Every call sets it as part of
-the same request, so it is an implementation detail rather than something to
-manage.)
+POST to `/api/appletv_siri/audio` with no Apple TV and it refuses, listing the
+URLs that would have worked:
+
+```json
+{
+  "error": "no Apple TV specified",
+  "hint": "POST to /api/appletv_siri/audio/<name or identifier>",
+  "apple_tvs": {
+    "Living Room": "/api/appletv_siri/audio/living_room",
+    "Bedroom": "/api/appletv_siri/audio/bedroom"
+  }
+}
+```
+
+(The bridge does keep one "active target" underneath, because HomeKit's Active
+Identifier characteristic is single-valued. Every call sets it as part of the
+same request, so it never becomes something you manage.)
 
 ### Multiple microphones
 
@@ -649,7 +654,6 @@ Asked during setup, and editable afterwards from **Configure**.
 | Key | Default | Notes |
 |---|---|---|
 | `bridge_url` | `http://127.0.0.1:8477` | Where the bridge's control API is |
-| `target` | *(bridge's active target)* | Default Apple TV, chosen from a list of names |
 | `tts_engine` | *(HA default)* | Engine for `say`. Pin it — HA's default is the Cloud engine, which fails when signed out |
 
 ### Integration — YAML only
@@ -666,7 +670,7 @@ UI holds — so the two can be used together.
 | `fallback_to_siri` | `false` | Assist first, Siri if it can't handle it (buffers — see [Sharing a microphone with Assist](#sharing-a-microphone-with-assist)) |
 | `max_buffer_seconds` | `15` | Ceiling on a buffered utterance |
 
-A `target` set in YAML wins over the one chosen in the UI.
+
 
 ## Limitations
 
