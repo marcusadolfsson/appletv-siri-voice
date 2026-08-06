@@ -169,7 +169,24 @@ function hdsTargets() {
   return m ? Array.from(m.keys()) : [];
 }
 
-const hasHds = () => hdsTargets().length > 0;
+/**
+ * Whether a SPECIFIC Apple TV has a data stream.
+ *
+ * Per-target, not "any target", because the streams die independently: one
+ * Apple TV can be perfectly healthy while the one being targeted has nothing.
+ * An any-target check reports Siri as available, lets the request through, and
+ * the utterance vanishes silently.
+ */
+function hasHdsFor(target) {
+  const m = live && live.rc && live.rc.dataStreamConnections;
+  return !!(m && target != null && m.has(Number(target)));
+}
+
+/** The target we would actually send to right now. */
+const activeTarget = () => (live && live.rc && live.rc.activeIdentifier) || null;
+
+/** Is voice usable for the currently selected Apple TV? */
+const siriReady = () => !!(live && live.withSiri) && hasHdsFor(activeTarget());
 
 async function waitFor(pred, timeoutMs, stepMs = 1000) {
   const t0 = Date.now();
@@ -226,16 +243,19 @@ async function recoverHds(reason) {
  * minute after startup, buttons immediately.
  */
 async function superviseHds() {
-  if (!(await waitFor(hasHds, BOOT_HDS_GRACE_MS))) {
+  // At boot any stream will do — the active target may not be chosen yet.
+  if (!(await waitFor(() => hdsTargets().length > 0, BOOT_HDS_GRACE_MS))) {
     await recoverHds('no data stream after boot');
   } else {
     log(`[hap] data stream present at boot: ${hdsTargets()}`);
   }
   setInterval(async () => {
     if (recovering) return;
-    if (hasHds()) return;
+    // Watch the ACTIVE target specifically. Streams die independently, so a
+    // healthy stream to some other Apple TV must not mask a dead one here.
+    if (siriReady()) return;
     if (Date.now() - lastRecovery < WATCHDOG_INTERVAL_MS) return;
-    await recoverHds('watchdog: data stream disappeared');
+    await recoverHds(`watchdog: no data stream for active target ${activeTarget()}`);
   }, WATCHDOG_INTERVAL_MS);
 }
 
@@ -270,7 +290,7 @@ const server = http.createServer(async (req, res) => {
         active: !!(rc && rc.isActive()),
         activeIdentifier: (rc && rc.activeIdentifier) || null,
         targets,
-        siriAvailable: !!(live && live.withSiri) && hasHds(),
+        siriAvailable: siriReady(),
         dataStreams: hdsTargets(),
         recovering,
       });
@@ -303,10 +323,10 @@ const server = http.createServer(async (req, res) => {
       const target = url.searchParams.get('target');
       if (target) rc.setActiveIdentifier(parseInt(target, 10));
       if (!(await whenActive())) return json(res, { error: 'no Apple TV has claimed the remote' }, 409);
-      if (!hasHds()) {
-        recoverHds('siri requested with no data stream');
+      if (!hasHdsFor(rc.activeIdentifier)) {
+        recoverHds(`siri requested but target ${rc.activeIdentifier} has no data stream`);
         return json(res, {
-          error: 'no HomeKit data stream to that Apple TV; recovery started',
+          error: `no HomeKit data stream to Apple TV ${rc.activeIdentifier}; recovery started`,
           retryAfterSeconds: 60,
         }, 503);
       }
@@ -336,7 +356,7 @@ const server = http.createServer(async (req, res) => {
       const file = url.searchParams.get('file');
       if (!file || !fs.existsSync(file)) return json(res, { error: 'missing/unknown file' }, 400);
       if (!(await whenActive())) return json(res, { error: 'no Apple TV has claimed the remote' }, 409);
-      if (!hasHds()) return json(res, { error: 'no HomeKit data stream' }, 503);
+      if (!hasHdsFor(rc.activeIdentifier)) return json(res, { error: 'no HomeKit data stream for the active target' }, 503);
       const pcm = fs.readFileSync(file).subarray(44);
       audio.pending = Buffer.alloc(0);
       rc.pushButton(ButtonType.SIRI);
