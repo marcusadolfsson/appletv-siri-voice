@@ -292,27 +292,6 @@ and a microphone that should always do one thing — a kitchen tablet that only
 ever runs the house can post `?route=assist` and never reach Siri, while the
 living room remote follows the rule.
 
-#### Chaining them instead of choosing
-
-```yaml
-appletv_siri:
-  fallback_to_siri: true
-```
-
-The pipeline gets first refusal, and anything it cannot match is forwarded to
-Siri. Good when "turn off the kitchen lights" should stay local but "what's the
-weather in Tokyo" should still get an answer.
-
-**The trade-off is real.** The same audio has to reach two consumers, so the
-utterance is **buffered instead of streamed** — Siri only starts hearing it once
-the speaker has finished and the pipeline has declined. That adds roughly the
-length of the utterance to the response. With `siri_when`, audio reaches Siri
-while the person is still talking.
-
-Also note an LLM will usually answer *something* rather than report no match, so
-`fallback_to_siri` suits Home Assistant's built-in intent matcher, or an agent
-configured to defer when unsure. With a chatty LLM, prefer `siri_when`.
-
 ## Services
 
 | Service | What it does |
@@ -373,17 +352,23 @@ weather" and watch the TV.
 ```yaml
 action: appletv_siri.say
 data:
+  target: 207551296          # which Apple TV — identifiers are on sensor.apple_tv_bridge
   text: "Play the next episode"
 ```
 
 Home Assistant synthesises the speech and streams it in as if it had been
 spoken. Siri cannot tell the difference — it is just audio — so anything you
-could say, an automation can say:
+could say, an automation can say.
+
+`target` is **required**: there is no default Apple TV, so every command says
+where it is going. Or use the per-Apple-TV `text.say_to_siri_<apple tv>` entity,
+which carries its own.
 
 ```yaml
 # Wind the house down and put something on
 - action: appletv_siri.say
   data:
+    target: 207551296
     text: "Play Slow Horses on Apple TV"
 ```
 
@@ -679,8 +664,6 @@ UI holds — so the two can be used together.
 | `sources` | `{}` | Named microphones; each may set `target`, `siri_when`, `assist_pipeline`. Selected with `?source=<name>` |
 | `siri_when.entity` / `.states` | *(absent)* | Route to Siri while entity is in one of these states. **Absent means everything goes to Siri** |
 | `assist_pipeline` | *(HA default)* | Which Assist pipeline handles non-Siri utterances. **Pin it** — HA's default has no speech-to-text engine and silently returns nothing |
-| `fallback_to_siri` | `false` | Pipeline first, Siri if it can't handle it (buffers — see [Using one microphone for Siri and something else](#using-one-microphone-for-siri-and-something-else)) |
-| `max_buffer_seconds` | `15` | Ceiling on a buffered utterance |
 
 
 

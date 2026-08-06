@@ -41,19 +41,15 @@ from .const import (
     ATTR_TARGET,
     ATTR_TEXT,
     BUTTONS,
-    BYTES_PER_MS,
     CONF_ASSIST_PIPELINE,
     CONF_BRIDGE_URL,
     CONF_ENTITY,
-    CONF_FALLBACK_TO_SIRI,
-    CONF_MAX_BUFFER_SECONDS,
     CONF_SIRI_WHEN,
     CONF_SOURCES,
     CONF_STATES,
     CONF_TARGET,
     DEFAULT_BRIDGE_URL,
     DOMAIN,
-    NO_MATCH_CODES,
     CONF_TTS_ENGINE,
     SERVICE_PRESS,
     SERVICE_RECOVER,
@@ -89,10 +85,6 @@ CONFIG_SCHEMA = vol.Schema(
                 vol.Optional(CONF_BRIDGE_URL, default=DEFAULT_BRIDGE_URL): cv.string,
                 vol.Optional(CONF_SIRI_WHEN): SIRI_WHEN_SCHEMA,
                 vol.Optional(CONF_ASSIST_PIPELINE): cv.string,
-                vol.Optional(CONF_FALLBACK_TO_SIRI, default=False): cv.boolean,
-                vol.Optional(CONF_MAX_BUFFER_SECONDS, default=15): vol.All(
-                    vol.Coerce(int), vol.Range(min=1, max=60)
-                ),
                 vol.Optional(CONF_TTS_ENGINE): cv.string,
             }
         )
@@ -105,10 +97,7 @@ PLATFORMS = ["binary_sensor", "button", "sensor", "text"]
 
 # Routing keys that stay in YAML: they are nested and awkward in a config form,
 # and they are merged over whatever the config entry holds.
-YAML_ONLY = (
-    CONF_SOURCES, CONF_SIRI_WHEN, CONF_ASSIST_PIPELINE,
-    CONF_FALLBACK_TO_SIRI, CONF_MAX_BUFFER_SECONDS,
-)
+YAML_ONLY = (CONF_SOURCES, CONF_SIRI_WHEN, CONF_ASSIST_PIPELINE)
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -341,22 +330,7 @@ class SiriRemoteAudioView(HomeAssistantView):
         if to_siri:
             return await self._to_siri(request.content, conf)
 
-        # Assist. With fallback enabled the audio must be buffered, because a
-        # stream can only be consumed once and Siri may need the same bytes.
-        if conf.get(CONF_FALLBACK_TO_SIRI):
-            cap = conf.get(CONF_MAX_BUFFER_SECONDS, 15) * 1000 * BYTES_PER_MS
-            audio = await self._read_capped(request, cap)
-            result = await self._run_assist(_chunks(audio), conf)
-            if result.get("handled"):
-                return self.json({"route": "assist", **result["payload"]})
-            _LOGGER.debug("Assist did not handle the utterance; forwarding to Siri")
-            resp = await self._to_siri(audio, conf)
-            # Report both so a client can show what actually happened.
-            return resp
-
-        return self.json({"route": "assist", **(await self._run_assist(
-            _stream(request), conf
-        ))["payload"]})
+        return self.json({"route": "assist", **await self._run_assist(_stream(request), conf)})
 
     async def _to_siri(self, audio: Any, conf: dict[str, Any]) -> web.Response:
         try:
@@ -373,20 +347,11 @@ class SiriRemoteAudioView(HomeAssistantView):
             return self.json({"route": "siri", "error": str(err)}, status_code=502)
         return self.json({"route": "siri", **result})
 
-    async def _read_capped(self, request: web.Request, cap: int) -> bytes:
-        """Read the body with a hard ceiling, so a stuck client can't grow forever."""
-        buf = bytearray()
-        async for chunk in request.content.iter_chunked(4096):
-            buf.extend(chunk)
-            if len(buf) >= cap:
-                _LOGGER.warning("Utterance hit the %d-byte buffer cap; truncating", cap)
-                break
-        return bytes(buf)
 
     async def _run_assist(
         self, audio: AsyncIterable[bytes], conf: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        """Run the Assist pipeline; report whether it actually handled anything."""
+        """Run the Assist pipeline and report what it made of the utterance."""
         conf = conf or self._conf
         events: dict[str, Any] = {}
 
@@ -412,7 +377,7 @@ class SiriRemoteAudioView(HomeAssistantView):
             )
         except Exception as err:  # noqa: BLE001 — surface anything to the client
             _LOGGER.exception("Assist route failed")
-            return {"handled": False, "payload": {"error": str(err)}}
+            return {"error": str(err)}
 
         stt_end = events.get("stt-end", {})
         intent_end = events.get("intent-end", {})
@@ -430,16 +395,10 @@ class SiriRemoteAudioView(HomeAssistantView):
                 conf.get(CONF_ASSIST_PIPELINE) or "<default>",
             )
 
-        code = response.get("data", {}).get("code")
-        handled = bool(stt_end) and response.get("response_type") != "error" and code not in NO_MATCH_CODES
-
         return {
-            "handled": handled,
-            "payload": {
-                "transcript": stt_end.get("stt_output", {}).get("text"),
-                "response": response.get("speech", {}).get("plain", {}).get("speech"),
-                "tts_url": tts_end.get("tts_output", {}).get("url"),
-            },
+            "transcript": stt_end.get("stt_output", {}).get("text"),
+            "response": response.get("speech", {}).get("plain", {}).get("speech"),
+            "tts_url": tts_end.get("tts_output", {}).get("url"),
         }
 
 
@@ -447,7 +406,3 @@ async def _stream(request: web.Request) -> AsyncIterable[bytes]:
     async for chunk in request.content.iter_chunked(1024):
         yield chunk
 
-
-async def _chunks(data: bytes, size: int = 1024) -> AsyncIterable[bytes]:
-    for i in range(0, len(data), size):
-        yield data[i : i + size]

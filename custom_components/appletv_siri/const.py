@@ -8,8 +8,6 @@ CONF_SIRI_WHEN = "siri_when"
 CONF_ENTITY = "entity"
 CONF_STATES = "states"
 CONF_ASSIST_PIPELINE = "assist_pipeline"
-CONF_FALLBACK_TO_SIRI = "fallback_to_siri"
-CONF_MAX_BUFFER_SECONDS = "max_buffer_seconds"
 CONF_TTS_ENGINE = "tts_engine"
 CONF_SOURCES = "sources"
 
@@ -33,6 +31,3 @@ BUTTONS = [
     "VOLUME_UP", "VOLUME_DOWN", "SIRI", "POWER", "GENERIC",
 ]
 
-# Assist responses that mean "I could not handle that" — the trigger for
-# falling back to Siri when enabled.
-NO_MATCH_CODES = {"no_intent_match", "no_valid_targets", "no_intent_match_for_area"}
