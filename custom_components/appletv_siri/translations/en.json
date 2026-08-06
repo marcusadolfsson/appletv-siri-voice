@@ -1,0 +1,35 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Apple TV Siri Voice",
+        "description": "Where is the bridge? Pair it in the Home app first — it needs to have seen your Apple TVs.",
+        "data": { "bridge_url": "Bridge URL" }
+      },
+      "target": {
+        "title": "Choose the default Apple TV",
+        "description": "Voice and buttons go here unless something names a different one. You can change it later, or from select.apple_tv_target.",
+        "data": {
+          "target": "Default Apple TV",
+          "tts_engine": "Speech engine for written commands (optional)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach the bridge. Check it is running and the URL is right.",
+      "no_targets": "The bridge is running but no Apple TVs have registered. Pair it in the Home app, then try again."
+    },
+    "abort": { "already_configured": "This bridge is already set up." }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Apple TV Siri Voice",
+        "data": {
+          "target": "Default Apple TV",
+          "tts_engine": "Speech engine for written commands"
+        }
+      }
+    }
+  }
+}

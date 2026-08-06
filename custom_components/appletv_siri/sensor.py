@@ -13,21 +13,18 @@ from homeassistant.components.sensor import SensorEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import CONF_BRIDGE_URL, DEFAULT_BRIDGE_URL, DOMAIN
 from .coordinator import BridgeCoordinator
 
 
-async def async_setup_platform(
+async def async_setup_entry(
     hass: HomeAssistant,
-    config: ConfigType,
+    entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
-    if discovery_info is None or DOMAIN not in hass.data:
-        return
     data = hass.data[DOMAIN]
     async_add_entities([BridgeSensor(data["coordinator"], data["conf"])])
 
@@ -44,6 +41,7 @@ class BridgeSensor(CoordinatorEntity[BridgeCoordinator], SensorEntity):
     def __init__(self, coordinator: BridgeCoordinator, conf: dict[str, Any]) -> None:
         super().__init__(coordinator)
         self._conf = conf
+        self._attr_device_info = coordinator.bridge_device_info()
 
     @property
     def native_value(self) -> int | None:

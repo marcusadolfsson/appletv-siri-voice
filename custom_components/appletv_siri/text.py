@@ -11,7 +11,7 @@ import logging
 from homeassistant.components.text import TextEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
+from homeassistant.config_entries import ConfigEntry
 
 from .const import ATTR_TARGET, ATTR_TEXT, DOMAIN, SERVICE_SAY
 from .coordinator import BridgeCoordinator
@@ -20,14 +20,11 @@ from .entity_setup import add_per_target_entities
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_platform(
+async def async_setup_entry(
     hass: HomeAssistant,
-    config: ConfigType,
+    entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
-    if discovery_info is None or DOMAIN not in hass.data:
-        return
     coordinator: BridgeCoordinator = hass.data[DOMAIN]["coordinator"]
     add_per_target_entities(
         coordinator, async_add_entities,
@@ -38,6 +35,8 @@ async def async_setup_platform(
 class SiriCommandText(TextEntity):
     """Type a command; Siri on this Apple TV hears it."""
 
+    _attr_has_entity_name = True
+    _attr_name = "Say to Siri"
     _attr_icon = "mdi:microphone-message"
     _attr_native_max = 255
     _attr_mode = "text"
@@ -46,8 +45,8 @@ class SiriCommandText(TextEntity):
         self._hass = hass
         self._target = target
         self._attr_native_value = ""
-        self._attr_name = f"Say to Siri ({coordinator.clean_name(target)})"
         self._attr_unique_id = f"{DOMAIN}_{target}_say"
+        self._attr_device_info = coordinator.device_info(target)
 
     async def async_set_value(self, value: str) -> None:
         """Speak it, then clear — it is an action, not a setting."""

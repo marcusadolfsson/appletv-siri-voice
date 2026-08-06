@@ -19,7 +19,7 @@ from typing import Any
 from homeassistant.components.select import SelectEntity
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .bridge import Bridge
@@ -29,18 +29,13 @@ from .coordinator import BridgeCoordinator
 _LOGGER = logging.getLogger(__name__)
 
 
-async def async_setup_platform(
+async def async_setup_entry(
     hass: HomeAssistant,
-    config: ConfigType,
+    entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
     """Set up the target selector."""
-    if discovery_info is None:
-        return
-    data = hass.data.get(DOMAIN)
-    if not data:
-        return
+    data = hass.data[DOMAIN]
     async_add_entities([AppleTvTargetSelect(data["coordinator"], data["bridge"])])
 
 
@@ -55,6 +50,7 @@ class AppleTvTargetSelect(CoordinatorEntity[BridgeCoordinator], SelectEntity):
     def __init__(self, coordinator: BridgeCoordinator, bridge: Bridge) -> None:
         super().__init__(coordinator)
         self._bridge = bridge
+        self._attr_device_info = coordinator.bridge_device_info()
 
     @property
     def _labels(self) -> dict[str, int]:

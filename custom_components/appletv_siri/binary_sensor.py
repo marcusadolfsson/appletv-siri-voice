@@ -15,7 +15,7 @@ from homeassistant.components.binary_sensor import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
@@ -23,14 +23,11 @@ from .coordinator import BridgeCoordinator
 from .entity_setup import add_per_target_entities
 
 
-async def async_setup_platform(
+async def async_setup_entry(
     hass: HomeAssistant,
-    config: ConfigType,
+    entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
-    discovery_info: DiscoveryInfoType | None = None,
 ) -> None:
-    if discovery_info is None or DOMAIN not in hass.data:
-        return
     coordinator: BridgeCoordinator = hass.data[DOMAIN]["coordinator"]
     add_per_target_entities(
         coordinator, async_add_entities, lambda t: [SiriAvailable(coordinator, t)],
@@ -40,13 +37,15 @@ async def async_setup_platform(
 class SiriAvailable(CoordinatorEntity[BridgeCoordinator], BinarySensorEntity):
     """On when this Apple TV has a live voice data stream."""
 
+    _attr_has_entity_name = True
+    _attr_name = "Siri voice available"
     _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
 
     def __init__(self, coordinator: BridgeCoordinator, target: int) -> None:
         super().__init__(coordinator)
         self._target = target
-        self._attr_name = f"{coordinator.clean_name(target)} Siri voice available"
         self._attr_unique_id = f"{DOMAIN}_{target}_siri_available"
+        self._attr_device_info = coordinator.device_info(target)
 
     @property
     def is_on(self) -> bool | None:

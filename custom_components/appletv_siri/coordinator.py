@@ -85,6 +85,15 @@ class BridgeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "model": "Apple TV (HomeKit Target Control)",
         }
 
+    def bridge_device_info(self) -> dict[str, Any]:
+        """The bridge itself, so its entities are not left ungrouped."""
+        return {
+            "identifiers": {(DOMAIN, "bridge")},
+            "name": "Apple TV Siri bridge",
+            "manufacturer": "appletv-siri-voice",
+            "model": "HomeKit Target Control bridge",
+        }
+
     def label_for(self, identifier: Any) -> str:
         """Human label for a target, with the identifier kept visible.
 

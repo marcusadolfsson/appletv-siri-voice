@@ -113,15 +113,30 @@ the next step.
 ### 3. Install the integration
 
 Copy `custom_components/appletv_siri/` into your Home Assistant `config/`
-directory (or add this repo to HACS as a custom repository), then:
+directory (or add this repo to HACS as a custom repository) and restart, then
+**Settings → Devices & Services → Add Integration → Apple TV Siri Voice**.
+
+It asks for the bridge URL, then offers your Apple TVs by name — read from the
+bridge, so there are no identifiers to look up — and optionally a speech engine
+for written commands. Each Apple TV becomes a **device** with its own buttons
+and its own say-to-Siri box.
+
+Everything is editable afterwards from the integration's **Configure** button.
+
+#### Or configure it in YAML
+
+Routing (`sources`, `siri_when`, `assist_pipeline`) is YAML-only, because it is
+nested and awkward in a form. A YAML block is adopted into a config entry
+automatically the first time, so both can be used together — YAML routing on top
+of the connection settings from the UI:
 
 ```yaml
-# configuration.yaml
 appletv_siri:
-  tts_engine: tts.google_translate_en_com   # only needed for `say`
+  tts_engine: tts.google_translate_en_com
+  sources:
+    living_room: { target: 207551296 }
+    bedroom:     { target: 35040583 }
 ```
-
-Restart Home Assistant.
 
 > `google_translate` is one of four integrations Home Assistant sets up
 > automatically during onboarding, so this entity usually exists already — but
@@ -284,11 +299,9 @@ before it can be used:
 | `select.apple_tv_target` | The *default* Apple TV, for the audio endpoint and for services called without a target |
 | `button.recover_siri_voice` | Rebuild the voice data stream by hand (bridge-wide) |
 
-> **On the integrations page** Home Assistant says *"This integration was not set
-> up via the UI"*. That is expected — it is configured in YAML. One consequence
-> worth knowing: an integration without a config entry cannot create **devices**,
-> so these entities are named individually rather than being grouped under an
-> Apple TV device. A config flow would fix both.
+Each Apple TV is a device, so its entities are grouped under it and the names
+stay short. Bridge-wide entities — the target selector, the diagnostics sensor
+and the recover button — sit under an "Apple TV Siri bridge" device.
 | `sensor.apple_tv_bridge` | How many Apple TVs the bridge can see — **and their identifiers** |
 | `binary_sensor.siri_voice_available` | Whether voice works right now for the selected Apple TV |
 

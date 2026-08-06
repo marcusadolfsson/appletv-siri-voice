@@ -27,11 +27,11 @@ from aiohttp import web
 from homeassistant.components import stt, tts
 from homeassistant.components.assist_pipeline import async_pipeline_from_audio_stream
 from homeassistant.components.http import HomeAssistantView
+from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
 from homeassistant.core import Context, HomeAssistant, ServiceCall
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.discovery import async_load_platform
 from homeassistant.helpers.typing import ConfigType
 
 from .bridge import Bridge, BridgeError, BridgeUnavailable
@@ -103,27 +103,79 @@ CONFIG_SCHEMA = vol.Schema(
 )
 
 
+PLATFORMS = ["binary_sensor", "button", "select", "sensor", "text"]
+
+# Routing keys that stay in YAML: they are nested and awkward in a config form,
+# and they are merged over whatever the config entry holds.
+YAML_ONLY = (
+    CONF_SOURCES, CONF_SIRI_WHEN, CONF_ASSIST_PIPELINE,
+    CONF_FALLBACK_TO_SIRI, CONF_MAX_BUFFER_SECONDS,
+)
+
+
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Set up from configuration.yaml."""
-    conf = config.get(DOMAIN) or {}
+    """Keep the YAML block, and adopt it into a config entry the first time."""
+    conf = config.get(DOMAIN)
+    if conf is None:
+        return True
+
+    hass.data.setdefault(DOMAIN, {})["yaml"] = conf
+    if not hass.config_entries.async_entries(DOMAIN):
+        hass.async_create_task(
+            hass.config_entries.flow.async_init(
+                DOMAIN, context={"source": SOURCE_IMPORT}, data=dict(conf)
+            )
+        )
+    return True
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up from a config entry (created by the UI, or imported from YAML)."""
+    yaml_conf = (hass.data.get(DOMAIN) or {}).get("yaml", {})
+    # Entry holds the connection settings; YAML contributes routing on top.
+    conf: dict[str, Any] = {
+        **{k: v for k, v in entry.data.items() if v is not None},
+        **{k: v for k, v in entry.options.items() if v is not None},
+        **{k: v for k, v in yaml_conf.items() if k in YAML_ONLY},
+    }
+    # A target set in YAML still wins, so an existing setup behaves as before.
+    if yaml_conf.get(CONF_TARGET) is not None:
+        conf[CONF_TARGET] = yaml_conf[CONF_TARGET]
+
     bridge = Bridge(
         async_get_clientsession(hass), conf.get(CONF_BRIDGE_URL, DEFAULT_BRIDGE_URL)
     )
     coordinator = BridgeCoordinator(hass, bridge)
-    # Don't fail setup if the bridge is still starting — the entities simply
-    # report unavailable until it answers.
-    # async_refresh, not async_config_entry_first_refresh: setup must not fail
-    # just because the bridge is still starting. Entities report unavailable
-    # until it answers, and the coordinator retries on its own schedule.
+    # Not async_config_entry_first_refresh: setup must not fail because the
+    # bridge is still starting. Entities report unavailable until it answers.
     await coordinator.async_refresh()
-    hass.data[DOMAIN] = {"bridge": bridge, "conf": conf, "coordinator": coordinator}
+
+    hass.data.setdefault(DOMAIN, {}).update(
+        {"bridge": bridge, "conf": conf, "coordinator": coordinator, "entry_id": entry.entry_id}
+    )
 
     hass.http.register_view(SiriRemoteAudioView(hass, bridge, conf))
+    _register_services(hass, bridge, conf)
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    entry.async_on_unload(entry.add_update_listener(_reload_on_change))
+    return True
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+async def _reload_on_change(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    await hass.config_entries.async_reload(entry.entry_id)
+
+
+def _register_services(hass: HomeAssistant, bridge: Bridge, conf: dict[str, Any]) -> None:
+    """Services are global, so register them once."""
+    if hass.services.has_service(DOMAIN, SERVICE_PRESS):
+        return
 
     async def _press(call: ServiceCall) -> None:
-        if target := call.data.get(ATTR_TARGET):
-            await bridge.set_target(target)
-        await bridge.press(call.data[ATTR_BUTTON])
+        await bridge.press(call.data[ATTR_BUTTON], call.data.get(ATTR_TARGET))
 
     async def _set_target(call: ServiceCall) -> None:
         await bridge.set_target(call.data[ATTR_TARGET])
@@ -132,8 +184,6 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         await bridge.recover()
 
     async def _say(call: ServiceCall) -> None:
-        if target := call.data.get(ATTR_TARGET):
-            await bridge.set_target(target)
         pcm = await _text_to_pcm(hass, call.data[ATTR_TEXT], conf.get(CONF_TTS_ENGINE))
         await bridge.speak(pcm, call.data.get(ATTR_TARGET) or conf.get(CONF_TARGET))
 
@@ -156,13 +206,6 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             vol.Optional(ATTR_TARGET): vol.Coerce(int),
         }),
     )
-
-    # Entities, so the integration is usable from the UI rather than being
-    # service-calls-only: a target selector, a box to talk to Siri, and the
-    # handful of remote keys worth one tap.
-    for platform in ("select", "text", "button", "sensor", "binary_sensor"):
-        hass.async_create_task(async_load_platform(hass, platform, DOMAIN, {}, config))
-    return True
 
 
 async def _text_to_pcm(hass: HomeAssistant, text: str, engine: str | None) -> bytes:
