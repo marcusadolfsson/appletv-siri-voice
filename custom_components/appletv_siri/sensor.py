@@ -41,7 +41,8 @@ async def async_setup_entry(
 class BridgeSensor(CoordinatorEntity[BridgeCoordinator], SensorEntity):
     """How many Apple TVs the bridge can see, plus everything about them."""
 
-    _attr_name = "Apple TV bridge"
+    _attr_has_entity_name = True
+    _attr_name = "Apple TVs found"
     _attr_icon = "mdi:bridge"
     _attr_unique_id = f"{DOMAIN}_bridge"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
@@ -97,7 +98,7 @@ class VoiceUrlSensor(CoordinatorEntity[BridgeCoordinator], SensorEntity):
     """
 
     _attr_has_entity_name = True
-    _attr_name = "Voice URL"
+    _attr_name = "Voice Url"
     _attr_icon = "mdi:link-variant"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 

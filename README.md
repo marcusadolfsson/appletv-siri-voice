@@ -24,20 +24,17 @@ with an ordinary 8-digit setup code.
 -->
 
 ```
-  living room mic ──▶ POST /api/appletv_siri/audio/living_room ─┐
-  bedroom mic ──────▶ POST .../audio/bedroom ───────────────────┤
-  automation ───────▶ appletv_siri.say  (spoken for you) ───────┤
-                                                                │
-                                              Home Assistant ───┘
-                                                    │
-                                                    ▼
-                                            bridge (HomeKit
-                                            Target Control)
-                                                    │
-                                    ┌───────────────┴───────────────┐
-                                    ▼                               ▼
-                            Living Room Apple TV            Bedroom Apple TV
-                                  → Siri                        → Siri
+  living room mic ──POST──▶ /api/appletv_siri/audio/living_room ┐
+  bedroom mic ──────POST──▶ /api/appletv_siri/audio/bedroom     ├──▶ Home Assistant
+  automation ───────calls─▶ appletv_siri.say  (text → speech)   ┘         │
+                                                                          ▼
+                                                                  bridge (HomeKit
+                                                                  Target Control)
+                                                                          │
+                                              ┌───────────────────────────┴──────┐
+                                              ▼                                  ▼
+                                     Living Room Apple TV              Bedroom Apple TV
+                                           → Siri                           → Siri
 ```
 
 One bridge, one pairing in the Home app. Each Apple TV gets its own URL, so a
@@ -164,7 +161,7 @@ and it needs to know nothing else:
 own, ready to paste:
 
 **Settings → Devices & Services → Apple TV Siri Voice → *(the Apple TV)*** — a
-**Voice URL** sensor under *Diagnostic*, holding the full address:
+**Voice Url** sensor under *Diagnostic*, holding the full address:
 
 ```
 http://homeassistant.local:8123/api/appletv_siri/audio/living_room
@@ -317,7 +314,7 @@ before it can be used:
 | `text.say_to_siri_<apple tv>` | Type a command, press enter, Siri on **that** Apple TV hears it. The box clears afterwards, because it is an action rather than a setting |
 | `button.<apple tv>_home` / `_menu` / `_select` / `_play_pause` | The keys worth one tap; everything else is `appletv_siri.press` |
 | `binary_sensor.<apple tv>_siri_voice_available` | Whether voice works for that Apple TV right now |
-| `sensor.<apple tv>_voice_url` | The full URL to POST that Apple TV's audio to — copy it into the microphone |
+| `sensor.<apple tv>_voice_url` | **Voice Url** — the full address to POST that Apple TV's audio to; copy it into the microphone |
 | `sensor.apple_tv_bridge` | How many Apple TVs the bridge can see, and everything about them |
 | `button.recover_siri_voice` | Rebuild the voice data stream by hand (bridge-wide) |
 
