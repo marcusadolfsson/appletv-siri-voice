@@ -3,14 +3,11 @@
 **Send voice to Siri on your Apple TV from Home Assistant.
 Just like from the physical Siri Remote.**
 
-Speak into any microphone on your network and the words reach Siri on the Apple
-TV exactly as they would from the remote in your hand:
-
 > *"Skip the intro"* · *"What did she say?"* · *"Play the next episode"* ·
 > *"Open Netflix"* · *"Turn on subtitles"*
 
 Or send text instead, and Home Assistant relays it for you — so an automation
-can talk to the Siri on the Apple TV with no microphone in the loop at all.
+can talk to the Siri on the Apple TV with no microphone in the loop at all. This is great for scripts that have no equivalent IP commands.
 
 This project makes Home Assistant appear to your Apple TV as a **HomeKit
 remote** — the same accessory profile Crestron's TSR-310 uses — so it can stream
