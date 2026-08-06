@@ -18,9 +18,9 @@ can talk to the Siri on the Apple TV with no microphone in the loop at all:
     text: "Play Slow Horses"
 ```
 
-Both paths reach the same place. This project makes Home Assistant appear to
-your Apple TV as a **HomeKit remote** — the same accessory profile Crestron's
-TSR-310 uses — so it can stream voice into Siri and deliver button presses.
+This project makes Home Assistant appear to your Apple TV as a **HomeKit
+remote** — the same accessory profile Crestron's TSR-310 uses — so it can stream
+voice into Siri and deliver button presses.
 
 No MFi licence, no special hardware, no jailbreak. It pairs from the Home app
 with an ordinary 8-digit setup code.
