@@ -53,14 +53,14 @@ itself, not something Apple verifies.
   integration's connection is asleep or wedged.
 - **Written commands** (`appletv_siri.say`) — Home Assistant speaks the text for
   you, so an automation can tell Siri something without a microphone.
-- **Multiple Apple TVs on one bridge**, individually addressable, with a
-  `select` entity for choosing the target from the UI.
+- **Multiple Apple TVs on one bridge** — each becomes a device with its own
+  buttons and its own say-to-Siri box, so nothing has to be "selected" first.
 - **Optional routing** to Assist if you already run a local assistant.
 
 ## Requirements
 
 - An Apple TV on tvOS 12 or later, on the same LAN
-- Home Assistant with `configuration.yaml` access
+- Home Assistant (setup is a UI dialog; YAML only if you want per-microphone routing)
 - Docker for the bridge (**Core, Container, or Supervised** — the bridge is a
   container, so HA OS users run it on any Docker host on the same network)
 - **Host networking.** HomeKit needs mDNS; bridge networking will not work.
@@ -297,17 +297,15 @@ before it can be used:
 | `button.<apple tv>_home` / `_menu` / `_select` / `_play_pause` | The keys worth one tap; everything else is `appletv_siri.press` |
 | `binary_sensor.<apple tv>_siri_voice_available` | Whether voice works for that Apple TV right now |
 | `select.apple_tv_target` | The *default* Apple TV, for the audio endpoint and for services called without a target |
+| `sensor.apple_tv_bridge` | How many Apple TVs the bridge can see, and everything about them |
 | `button.recover_siri_voice` | Rebuild the voice data stream by hand (bridge-wide) |
 
-Each Apple TV is a device, so its entities are grouped under it and the names
-stay short. Bridge-wide entities — the target selector, the diagnostics sensor
-and the recover button — sit under an "Apple TV Siri bridge" device.
-| `sensor.apple_tv_bridge` | How many Apple TVs the bridge can see — **and their identifiers** |
-| `binary_sensor.siri_voice_available` | Whether voice works right now for the selected Apple TV |
+Each Apple TV is a **device**, so its entities are grouped under it and the
+names stay short. The three bridge-wide entities sit under an "Apple TV Siri
+bridge" device.
 
-**`sensor.apple_tv_bridge` is where you get the identifiers** for `target:` and
-`sources:`. Open it in Developer Tools → States and its attributes list every
-Apple TV:
+`sensor.apple_tv_bridge` carries the details, including the identifiers that
+`sources:` needs:
 
 ```yaml
 apple_tvs:
@@ -326,10 +324,10 @@ siri_available: true
 recovering: false
 ```
 
-`binary_sensor.siri_voice_available` is worth an automation. The failure it
-catches is silent — buttons keep working while Siri stops, because the Apple TV
-dropped the stream that carries audio — so without something watching, you find
-out by talking to a remote that does nothing.
+`binary_sensor.<apple tv>_siri_voice_available` is worth an automation. The
+failure it catches is silent — buttons keep working while Siri stops, because
+the Apple TV dropped the stream that carries audio — so without something
+watching, you find out by talking to a remote that does nothing.
 
 The text box is the fastest end-to-end check after installing: type "what's the
 weather" and watch the TV.
@@ -364,21 +362,35 @@ appletv_siri:
 ### Multiple Apple TVs
 
 **One bridge covers them all.** tvOS pushes every Apple TV in the home to the
-accessory as a separate target, so you do not run a bridge per device. Point
-voice and buttons at one with `appletv_siri.set_target`, or from the
-**`select.apple_tv_target`** entity the integration creates:
+accessory as a separate target, so you do not run a bridge per device.
+
+Each one becomes a **device** with its own entities, so you address it directly
+rather than selecting it first:
 
 ```yaml
-- action: select.select_option
+- action: button.press
   target:
-    entity_id: select.apple_tv_target
+    entity_id: button.bedroom_home
+
+- action: text.set_value
+  target:
+    entity_id: text.say_to_siri_bedroom
   data:
-    option: "Bedroom (35040583)"
+    value: "Play the next episode"
 ```
 
-That entity also carries `siri_available`, `data_streams` and `recovering` as
-attributes, so an automation can notice voice being unavailable rather than
-discovering it when an utterance goes nowhere.
+Services take a target too, which is what automations usually want:
+
+```yaml
+- action: appletv_siri.say
+  data:
+    target: 35040583
+    text: "Pause"
+```
+
+`select.apple_tv_target` sets the **default** — used by the audio endpoint and
+by any service called without a `target`. It is a convenience, not a step you
+have to perform before every action.
 
 ### Multiple microphones
 
@@ -584,18 +596,31 @@ the bridge directly.
 > still work and Siri silently never opens a session. If you must change it,
 > remove and re-add the accessory in the Home app.
 
-### Integration
+### Integration — set in the UI
+
+Asked during setup, and editable afterwards from **Configure**.
 
 | Key | Default | Notes |
 |---|---|---|
-| `bridge_url` | `http://127.0.0.1:8477` | |
-| `target` | *(bridge's active target)* | Apple TV identifier from `/state` |
-| `siri_when.entity` / `.states` | *(absent)* | Route to Siri while entity is in one of these states. **Absent means everything goes to Siri** |
+| `bridge_url` | `http://127.0.0.1:8477` | Where the bridge's control API is |
+| `target` | *(bridge's active target)* | Default Apple TV, chosen from a list of names |
 | `tts_engine` | *(HA default)* | Engine for `say`. Pin it — HA's default is the Cloud engine, which fails when signed out |
+
+### Integration — YAML only
+
+Routing is nested, so it stays in `configuration.yaml`. A YAML block is adopted
+into a config entry automatically, and these keys are merged over whatever the
+UI holds — so the two can be used together.
+
+| Key | Default | Notes |
+|---|---|---|
 | `sources` | `{}` | Named microphones; each may set `target`, `siri_when`, `assist_pipeline`. Selected with `?source=<name>` |
-| `assist_pipeline` | *(HA default)* | **Pin this.** HA's default pipeline has no STT engine, and an unpinned pipeline silently returns nothing |
-| `fallback_to_siri` | `false` | Assist first, Siri if it can't handle it (buffers) |
+| `siri_when.entity` / `.states` | *(absent)* | Route to Siri while entity is in one of these states. **Absent means everything goes to Siri** |
+| `assist_pipeline` | *(HA default)* | **Pin this** if you use the Assist route. HA's default pipeline has no STT engine, and an unpinned one silently returns nothing |
+| `fallback_to_siri` | `false` | Assist first, Siri if it can't handle it (buffers — see [Sharing a microphone with Assist](#sharing-a-microphone-with-assist)) |
 | `max_buffer_seconds` | `15` | Ceiling on a buffered utterance |
+
+A `target` set in YAML wins over the one chosen in the UI.
 
 ## Limitations
 
