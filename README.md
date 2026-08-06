@@ -190,8 +190,6 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 {"route": "siri", "ok": true, "ms": 1873, "target": 207551296}
 ```
 
-Add `?route=siri` or `?route=assist` to override the routing rule.
-
 Any microphone works: an ESP32, a phone shortcut, a wall tablet, or a hardware
 remote. The reference client is an Android remote whose voice key streams its
 microphone straight into this endpoint.
@@ -263,6 +261,24 @@ appletv_siri:
     states: ["Watch Apple TV"]
   assist_pipeline: 01abcdef...     # pin one that has speech-to-text
 ```
+
+### Forcing a route
+
+`?route=` on the audio URL overrides the rule for that one utterance:
+
+```
+POST /api/appletv_siri/audio/living_room?route=siri      always Siri
+POST /api/appletv_siri/audio/living_room?route=assist    always Assist
+```
+
+Two uses. Testing — you can check both paths without changing the entity
+`siri_when` watches. And a microphone that should always do one thing regardless
+of what is on screen: a kitchen tablet that only ever runs the house can post
+with `?route=assist` and never reach Siri, while the living room remote is left
+to follow the rule.
+
+Without `?route=`, `siri_when` decides — and with no `siri_when` at all,
+everything goes to Siri.
 
 ### Optional: chain them
 
