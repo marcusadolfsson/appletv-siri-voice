@@ -49,7 +49,7 @@ intro.
 
 By default **every utterance goes to Siri**. If you already run Assist or a
 local LLM, some utterances can go there instead — see
-[Sharing a microphone with Assist](#sharing-a-microphone-with-assist), which is
+[Using one microphone for Siri and something else](#using-one-microphone-for-siri-and-something-else), which is
 a secondary use case rather than the point.
 
 I couldn't find another project doing this. The HomeKit "Target Control" profile
@@ -220,79 +220,98 @@ because it can see what's playing:
 > set `siri_when` accordingly. Sending house commands through Assist keeps them
 > local and avoids the Apple round-trip.
 
-## Sharing a microphone with Assist
+## Using one microphone for Siri and something else
 
-**Skip this unless you already run Assist or a local LLM.** Out of the box there
-is no `siri_when` rule and everything goes to Siri, which is what most people
-want.
+**Skip this if Siri is all you want.** Out of the box every utterance goes to
+Siri, which is the point of the project.
 
-**This is the only thing `configuration.yaml` is for.** Setup is a UI dialog and
-routing is the one capability it does not cover, because the rules are nested
-and awkward in a form. YAML is not an alternative to the UI — a block is adopted
-into the same integration automatically and sits on top of the settings from the
-dialog.
+If you already run a voice assistant — Home Assistant's own, or your own service
+— one microphone can feed both. There are two ways round it, and which is better
+depends on where you want the decision to live.
 
-If you do run an assistant, the useful split is **by what the person is looking
-at**, not by what they said:
+### Option 1 — decide before it reaches this integration
 
-- **TV is on and in front of them → Siri.** It has the media context. "Skip
-  the intro", "who plays her", "put on the next episode" are things only the
-  device playing the video can answer.
-- **Otherwise → Assist.** Your local LLM or intent matcher runs the house, with
-  no cloud round-trip and no Apple account involved.
+Your microphone or your own service picks the destination, and this integration
+only ever receives what is meant for Siri.
 
-That's what `siri_when` expresses, and it's one state lookup — no latency, no
-guessing at meaning:
+```
+        ┌── watching TV? ──▶ POST /api/appletv_siri/audio/living_room  → Siri
+  mic ──┤
+        └── otherwise ─────▶ POST https://your-own-assistant/...
+```
+
+Best when you already have somewhere for voice to go and rules about it. This
+integration stays a dumb pipe to Siri, and nothing here has to understand your
+setup. The cost is that you write the decision.
+
+### Option 2 — send everything here and let it route
+
+Point the microphone at one URL and configure the rule instead. Anything not
+bound for Siri is handed to a **Home Assistant Assist pipeline** — Assist is
+Home Assistant's built-in voice framework, and a *pipeline* is a named chain of
+speech-to-text → conversation agent → text-to-speech. The conversation agent can
+be Home Assistant's own intent matcher, or an LLM (OpenAI, Ollama, Gemini,
+anything with a conversation integration).
 
 ```yaml
 appletv_siri:
-  # Everything goes to Siri while the TV is the activity; Assist otherwise.
+  # Siri while the TV is the current activity; the pipeline otherwise.
   siri_when:
     entity: input_select.living_room_activity
     states: ["Watch Apple TV"]
-  assist_pipeline: 01abcdef...     # pin one that has speech-to-text
+
+  # Which pipeline handles everything else. Settings → Voice assistants;
+  # the id is in the URL when you open one.
+  assist_pipeline: 01abcdef2345...
 ```
 
-### Forcing a route
+The useful rule is **what the person is looking at**, not what they said:
 
-`?route=` on the audio URL overrides the rule for that one utterance:
+- **TV on and in front of them → Siri.** It has the media context. "Skip the
+  intro", "who plays her", "put on the next episode" are things only the device
+  playing the video can answer.
+- **Otherwise → your pipeline.** Runs the house, with no Apple account involved.
+
+It is one state lookup, so there is no latency and no guessing at meaning.
+
+> **Pin `assist_pipeline`.** Home Assistant's default pipeline ships with no
+> speech-to-text engine, so an unpinned one accepts the audio and silently
+> returns nothing.
+
+#### Forcing a route
+
+`?route=` overrides the rule for a single utterance:
 
 ```
 POST /api/appletv_siri/audio/living_room?route=siri      always Siri
-POST /api/appletv_siri/audio/living_room?route=assist    always Assist
+POST /api/appletv_siri/audio/living_room?route=assist    always the pipeline
 ```
 
-Two uses. Testing — you can check both paths without changing the entity
-`siri_when` watches. And a microphone that should always do one thing regardless
-of what is on screen: a kitchen tablet that only ever runs the house can post
-with `?route=assist` and never reach Siri, while the living room remote is left
-to follow the rule.
+Two uses: testing both paths without touching the entity `siri_when` watches,
+and a microphone that should always do one thing — a kitchen tablet that only
+ever runs the house can post `?route=assist` and never reach Siri, while the
+living room remote follows the rule.
 
-Without `?route=`, `siri_when` decides — and with no `siri_when` at all,
-everything goes to Siri.
-
-### Optional: chain them
+#### Chaining them instead of choosing
 
 ```yaml
 appletv_siri:
   fallback_to_siri: true
 ```
 
-Assist gets first refusal; anything it can't match is forwarded to Siri. Good
-when you want "turn off the kitchen lights" handled locally but "what's the
-weather in Tokyo" to still get an answer.
+The pipeline gets first refusal, and anything it cannot match is forwarded to
+Siri. Good when "turn off the kitchen lights" should stay local but "what's the
+weather in Tokyo" should still get an answer.
 
-**The trade-off is real and you should know it before enabling this.** Falling
-back means the same audio has to reach two consumers, so the utterance is
-**buffered instead of streamed** — Siri only starts hearing it after the speaker
-has finished and Assist has declined. That adds roughly the length of the
-utterance to the response time. With activity-based routing, audio reaches Siri
+**The trade-off is real.** The same audio has to reach two consumers, so the
+utterance is **buffered instead of streamed** — Siri only starts hearing it once
+the speaker has finished and the pipeline has declined. That adds roughly the
+length of the utterance to the response. With `siri_when`, audio reaches Siri
 while the person is still talking.
 
-A note on LLM agents: an LLM will usually answer *something* rather than
-report no match, so `fallback_to_siri` is most useful with Home Assistant's
-built-in intent matcher, or with an agent configured to defer when unsure. If
-your pipeline is a chatty LLM, prefer `siri_when`.
+Also note an LLM will usually answer *something* rather than report no match, so
+`fallback_to_siri` suits Home Assistant's built-in intent matcher, or an agent
+configured to defer when unsure. With a chatty LLM, prefer `siri_when`.
 
 ## Services
 
@@ -448,7 +467,7 @@ does not.
 #### Advanced: named sources
 
 Only needed if a microphone wants **different routing** rather than a different
-Apple TV — sending one room's utterances to Assist while another goes to Siri:
+Apple TV — one room following its own rule while another always goes to Siri:
 
 ```yaml
 appletv_siri:
@@ -464,8 +483,9 @@ appletv_siri:
 POST /api/appletv_siri/audio?source=bedroom
 ```
 
-An unrecognised source falls back to the default and logs a warning naming the
-ones it knows, so a typo does not quietly talk to the wrong room.
+A source that isn't recognised logs a warning naming the ones that are — and
+since there is no default Apple TV, the request is refused rather than quietly
+talking to the wrong room.
 
 ### Simultaneous conversations — the one real limitation
 
@@ -658,8 +678,8 @@ UI holds — so the two can be used together.
 |---|---|---|
 | `sources` | `{}` | Named microphones; each may set `target`, `siri_when`, `assist_pipeline`. Selected with `?source=<name>` |
 | `siri_when.entity` / `.states` | *(absent)* | Route to Siri while entity is in one of these states. **Absent means everything goes to Siri** |
-| `assist_pipeline` | *(HA default)* | **Pin this** if you use the Assist route. HA's default pipeline has no STT engine, and an unpinned one silently returns nothing |
-| `fallback_to_siri` | `false` | Assist first, Siri if it can't handle it (buffers — see [Sharing a microphone with Assist](#sharing-a-microphone-with-assist)) |
+| `assist_pipeline` | *(HA default)* | Which Assist pipeline handles non-Siri utterances. **Pin it** — HA's default has no speech-to-text engine and silently returns nothing |
+| `fallback_to_siri` | `false` | Pipeline first, Siri if it can't handle it (buffers — see [Using one microphone for Siri and something else](#using-one-microphone-for-siri-and-something-else)) |
 | `max_buffer_seconds` | `15` | Ceiling on a buffered utterance |
 
 
