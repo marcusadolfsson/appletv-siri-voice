@@ -259,6 +259,11 @@ class SiriRemoteAudioView(HomeAssistantView):
     """
 
     url = f"/api/{DOMAIN}/audio"
+    # One URL per Apple TV: POST to /api/appletv_siri/audio/living_room and the
+    # words go to the living room. The bridge's "active target" is a HomeKit
+    # characteristic, not something a microphone should have to think about, so
+    # the address lives in the URL rather than in mutable state somewhere else.
+    extra_urls = [f"/api/{DOMAIN}/audio/{{target}}"]
     name = f"api:{DOMAIN}:audio"
     requires_auth = True
 
@@ -266,6 +271,29 @@ class SiriRemoteAudioView(HomeAssistantView):
         self._hass = hass
         self._bridge = bridge
         self._conf = conf
+
+    def _resolve(self, target: str | None) -> int | None:
+        """Accept an identifier or a name slug from the URL.
+
+        Names are friendlier to put in a device's config, and stable across
+        re-pairing in a way the tvOS-assigned identifiers are not.
+        """
+        if not target:
+            return None
+        if target.isdigit():
+            return int(target)
+        coordinator = (self._hass.data.get(DOMAIN) or {}).get("coordinator")
+        if coordinator:
+            want = target.strip().lower().replace("-", "_")
+            for ident in coordinator.targets:
+                slug = coordinator.clean_name(ident).lower().replace(" ", "_").replace("-", "_")
+                if slug == want:
+                    return int(ident)
+        _LOGGER.warning(
+            "Unknown Apple TV %r in the audio URL; using the default. "
+            "Use an identifier, or the Apple TV's name with underscores.", target
+        )
+        return None
 
     def _settings_for(self, source: str | None) -> dict[str, Any]:
         """Config for this microphone: its own keys, falling back to the global ones."""
@@ -293,8 +321,11 @@ class SiriRemoteAudioView(HomeAssistantView):
         state = self._hass.states.get(rule[CONF_ENTITY])
         return bool(state and state.state in rule[CONF_STATES])
 
-    async def post(self, request: web.Request) -> web.Response:
+    async def post(self, request: web.Request, target: str | None = None) -> web.Response:
         conf = self._settings_for(request.query.get("source"))
+        # The URL wins over anything configured: it names the Apple TV directly.
+        if (resolved := self._resolve(target)) is not None:
+            conf = {**conf, CONF_TARGET: resolved}
         route = request.query.get("route")
         to_siri = route == "siri" or (route is None and self._route_is_siri(conf))
 

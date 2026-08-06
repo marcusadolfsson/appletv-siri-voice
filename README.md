@@ -194,15 +194,26 @@ editing YAML.
 
 ### 4. Send it audio
 
-POST raw **PCM16, 16 kHz, mono** to `/api/appletv_siri/audio` with a normal
-long-lived token. The end of the request body is the end of the utterance, so
-stream it — don't buffer and send.
+**Every Apple TV has its own URL.** Point a microphone at the one in its room
+and it needs to know nothing else:
+
+```
+/api/appletv_siri/audio/living_room     ← by name
+/api/appletv_siri/audio/207551296       ← or by identifier
+/api/appletv_siri/audio                 ← or the default Apple TV
+```
+
+The exact URLs are listed on `sensor.apple_tv_bridge`, so there is nothing to
+construct.
+
+POST raw **PCM16, 16 kHz, mono** with a normal long-lived token. The end of the
+request body is the end of the utterance, so stream it — don't buffer and send.
 
 ```
 curl -X POST -H "Authorization: Bearer $TOKEN" \
      -H "Content-Type: application/octet-stream" \
      --data-binary @utterance.pcm \
-     http://homeassistant.local:8123/api/appletv_siri/audio
+     http://homeassistant.local:8123/api/appletv_siri/audio/living_room
 ```
 
 ```json
@@ -310,7 +321,7 @@ before it can be used:
 | `text.say_to_siri_<apple tv>` | Type a command, press enter, Siri on **that** Apple TV hears it. The box clears afterwards, because it is an action rather than a setting |
 | `button.<apple tv>_home` / `_menu` / `_select` / `_play_pause` | The keys worth one tap; everything else is `appletv_siri.press` |
 | `binary_sensor.<apple tv>_siri_voice_available` | Whether voice works for that Apple TV right now |
-| `select.apple_tv_target` | The *default* Apple TV, for the audio endpoint and for services called without a target |
+| `select.apple_tv_target` | The **default** Apple TV — used only by `/audio` with no Apple TV in the URL, and by services called without a `target` |
 | `sensor.apple_tv_bridge` | How many Apple TVs the bridge can see, and everything about them |
 | `button.recover_siri_voice` | Rebuild the voice data stream by hand (bridge-wide) |
 
@@ -402,41 +413,52 @@ Services take a target too, which is what automations usually want:
     text: "Pause"
 ```
 
-`select.apple_tv_target` sets the **default** — used by the audio endpoint and
-by any service called without a `target`. It is a convenience, not a step you
-have to perform before every action.
+`select.apple_tv_target` sets the **default** — used only by `/audio` with no
+Apple TV named in the URL, and by services called without a `target`. It is a
+fallback, not a mode: you never have to select an Apple TV before acting on it.
+
+(The bridge does have a single "active target" underneath, because HomeKit's
+Active Identifier characteristic is single-valued. Every call sets it as part of
+the same request, so it is an implementation detail rather than something to
+manage.)
 
 ### Multiple microphones
 
-Name each one and say which it is in the URL:
+Give each one the URL of the Apple TV in its room:
+
+```
+kitchen tablet   → /api/appletv_siri/audio/kitchen
+bedroom remote   → /api/appletv_siri/audio/bedroom
+```
+
+That is the whole configuration. The URL is the address, so a microphone holds
+no state and makes no decision — replacing an Apple TV changes nothing on the
+device, because the name stays the same even though the identifier tvOS assigns
+does not.
+
+`sensor.apple_tv_bridge` lists the URL for each Apple TV.
+
+#### Advanced: named sources
+
+Only needed if a microphone wants **different routing** rather than a different
+Apple TV — sending one room's utterances to Assist while another goes to Siri:
+
+```yaml
+appletv_siri:
+  sources:
+    bedroom:
+      target: 35040583
+      siri_when:
+        entity: input_select.bedroom_activity
+        states: ["Watch Apple TV"]
+```
 
 ```
 POST /api/appletv_siri/audio?source=bedroom
 ```
 
-```yaml
-appletv_siri:
-  target: 207551296          # default for anything unnamed
-  sources:
-    living_room:
-      target: 207551296
-    bedroom:
-      target: 35040583
-      # A source can override routing too, so one room can prefer Assist
-      # while another goes to Siri:
-      # siri_when:
-      #   entity: input_select.bedroom_activity
-      #   states: ["Watch Apple TV"]
-```
-
-`source` is an **identity** claim — "I am the bedroom remote" — not a routing
-decision. Where "bedroom" points stays in Home Assistant, so replacing an Apple
-TV is one edit here rather than reconfiguring every remote in the house. That
-matters because the identifiers are assigned by tvOS and change when a device is
-replaced or re-paired.
-
-An unrecognised `source` falls back to the default target and logs a warning
-naming the ones it knows, so a typo doesn't silently talk to the wrong room.
+An unrecognised source falls back to the default and logs a warning naming the
+ones it knows, so a typo does not quietly talk to the wrong room.
 
 ### Simultaneous conversations — the one real limitation
 

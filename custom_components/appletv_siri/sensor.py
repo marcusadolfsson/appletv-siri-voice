@@ -59,10 +59,14 @@ class BridgeSensor(CoordinatorEntity[BridgeCoordinator], SensorEntity):
             # they can be read straight off the entity's attributes panel.
             "apple_tvs": {
                 ident: {
-                    "name": info.get("name"),
+                    "name": c.clean_name(ident),
+                    # What the bridge reported, which hap-nodejs mangles.
+                    "name_reported": info.get("name"),
                     "identifier": int(ident),
                     "configured": info.get("configured"),
                     "voice_ready": int(ident) in [int(s) for s in streams],
+                    # POST audio here to talk to this Apple TV specifically.
+                    "voice_url": c.voice_url(ident),
                 }
                 for ident, info in c.targets.items()
             },

@@ -85,6 +85,14 @@ class BridgeCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "model": "Apple TV (HomeKit Target Control)",
         }
 
+    def slug(self, identifier: Any) -> str:
+        """URL-safe form of the Apple TV's name."""
+        return self.clean_name(identifier).lower().replace(" ", "_").replace("-", "_")
+
+    def voice_url(self, identifier: Any) -> str:
+        """Where a microphone in that room should POST its audio."""
+        return f"/api/{DOMAIN}/audio/{self.slug(identifier)}"
+
     def bridge_device_info(self) -> dict[str, Any]:
         """The bridge itself, so its entities are not left ungrouped."""
         return {
