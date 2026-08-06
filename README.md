@@ -79,7 +79,11 @@ itself, not something Apple verifies.
 - An Apple TV on tvOS 12 or later, on the same LAN
 - Home Assistant (setup is a UI dialog; YAML only if you want per-microphone routing)
 - Docker for the bridge (**Core, Container, or Supervised** — the bridge is a
-  container, so HA OS users run it on any Docker host on the same network)
+  container, so HA OS users run it on any Docker host on the same network).
+  It is a separate container because
+  [HAP-NodeJS](https://github.com/homebridge/HAP-NodeJS) is the only open
+  implementation of HomeKit Data Stream, which is what carries Siri audio —
+  HAP-python has neither that nor Target Control.
 - **Host networking.** HomeKit needs mDNS; bridge networking will not work.
 
 ## Install
@@ -607,19 +611,6 @@ UI holds — so the two can be used together.
   [Simultaneous conversations](#simultaneous-conversations--the-one-real-limitation).
 - Not affiliated with or endorsed by Apple. "Siri", "Apple TV" and "HomeKit" are
   trademarks of Apple Inc.
-
-## How it works
-
-| Piece | Role |
-|---|---|
-| `bridge/index.js` | HomeKit accessory (category 32, "Remotes"), Opus encoding, data-stream recovery, control API |
-| `custom_components/appletv_siri/__init__.py` | Audio endpoint, routing, Assist pipeline, services |
-| `custom_components/appletv_siri/bridge.py` | Control-API client — the only file that knows the transport is Node |
-
-The bridge is Node because [HAP-NodeJS](https://github.com/homebridge/HAP-NodeJS)
-is the only open implementation of HomeKit Data Stream; HAP-python has neither
-that nor Target Control. `bridge.py` is deliberately thin so a future Python
-port would not disturb the integration.
 
 ## Licence
 
