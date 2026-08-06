@@ -16,6 +16,7 @@ is real — the fallback has to buffer the utterance instead of streaming it.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterable
 from typing import Any
@@ -23,18 +24,21 @@ from typing import Any
 import voluptuous as vol
 from aiohttp import web
 
-from homeassistant.components import stt
+from homeassistant.components import stt, tts
 from homeassistant.components.assist_pipeline import async_pipeline_from_audio_stream
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import Context, HomeAssistant, ServiceCall
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.discovery import async_load_platform
 from homeassistant.helpers.typing import ConfigType
 
 from .bridge import Bridge, BridgeError, BridgeUnavailable
 from .const import (
     ATTR_BUTTON,
     ATTR_TARGET,
+    ATTR_TEXT,
     BUTTONS,
     BYTES_PER_MS,
     CONF_ASSIST_PIPELINE,
@@ -48,8 +52,10 @@ from .const import (
     DEFAULT_BRIDGE_URL,
     DOMAIN,
     NO_MATCH_CODES,
+    CONF_TTS_ENGINE,
     SERVICE_PRESS,
     SERVICE_RECOVER,
+    SERVICE_SAY,
     SERVICE_SET_TARGET,
 )
 
@@ -74,6 +80,7 @@ CONFIG_SCHEMA = vol.Schema(
                 vol.Optional(CONF_MAX_BUFFER_SECONDS, default=15): vol.All(
                     vol.Coerce(int), vol.Range(min=1, max=60)
                 ),
+                vol.Optional(CONF_TTS_ENGINE): cv.string,
             }
         )
     },
@@ -102,6 +109,12 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     async def _recover(call: ServiceCall) -> None:
         await bridge.recover()
 
+    async def _say(call: ServiceCall) -> None:
+        if target := call.data.get(ATTR_TARGET):
+            await bridge.set_target(target)
+        pcm = await _text_to_pcm(hass, call.data[ATTR_TEXT], conf.get(CONF_TTS_ENGINE))
+        await bridge.speak(pcm, call.data.get(ATTR_TARGET) or conf.get(CONF_TARGET))
+
     hass.services.async_register(
         DOMAIN, SERVICE_PRESS, _press,
         schema=vol.Schema({
@@ -114,7 +127,57 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         schema=vol.Schema({vol.Required(ATTR_TARGET): vol.Coerce(int)}),
     )
     hass.services.async_register(DOMAIN, SERVICE_RECOVER, _recover, schema=vol.Schema({}))
+    hass.services.async_register(
+        DOMAIN, SERVICE_SAY, _say,
+        schema=vol.Schema({
+            vol.Required(ATTR_TEXT): cv.string,
+            vol.Optional(ATTR_TARGET): vol.Coerce(int),
+        }),
+    )
+
+    # A select entity listing the Apple TVs the bridge knows about.
+    hass.async_create_task(async_load_platform(hass, "select", DOMAIN, {}, config))
     return True
+
+
+async def _text_to_pcm(hass: HomeAssistant, text: str, engine: str | None) -> bytes:
+    """Speak `text` with Home Assistant's TTS, as PCM16 16 kHz mono for Siri.
+
+    Siri accepts synthesised speech perfectly well — it is just audio to it —
+    which is what makes a written command possible at all.
+
+    Whatever the engine produces (usually MP3, sometimes WAV at another rate) is
+    transcoded with ffmpeg, which ships in the Home Assistant container.
+    """
+    media_id = tts.generate_media_source_id(
+        hass, message=text, engine=engine, language=None, options=None, cache=False
+    )
+    try:
+        _ext, data = await tts.async_get_media_source_audio(hass, media_id)
+    except Exception as err:  # noqa: BLE001 — the cause is worth naming
+        # Home Assistant's default engine is the cloud one, which fails opaquely
+        # (a JWT decode error) when the account is signed out. Say so, rather
+        # than surfacing a stack trace about token segments.
+        raise HomeAssistantError(
+            f"Text-to-speech failed using engine {engine or '<default>'}: {err}. "
+            "Set tts_engine: to a working engine — the Home Assistant Cloud "
+            "engine fails this way when the account is signed out."
+        ) from err
+
+    proc = await asyncio.create_subprocess_exec(
+        "ffmpeg", "-hide_banner", "-loglevel", "error",
+        "-i", "pipe:0", "-f", "s16le", "-ar", "16000", "-ac", "1", "pipe:1",
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    pcm, err = await proc.communicate(data)
+    if proc.returncode != 0 or not pcm:
+        raise HomeAssistantError(
+            f"Could not convert the speech to PCM: {err.decode(errors='replace')[:200]}"
+        )
+    _LOGGER.debug("say: %d bytes of TTS -> %d bytes PCM (%d ms)", len(data), len(pcm), len(pcm) // 32)
+    return pcm
 
 
 class SiriRemoteAudioView(HomeAssistantView):
@@ -136,17 +199,21 @@ class SiriRemoteAudioView(HomeAssistantView):
         self._bridge = bridge
         self._conf = conf
 
-    def _siri_is_in_front_of_them(self) -> bool:
-        """True when the configured entity says the Apple TV is what's on screen."""
+    def _route_is_siri(self) -> bool:
+        """Where this utterance should go.
+
+        With no `siri_when` rule everything goes to Siri — that is the whole
+        point of the integration, and routing to Assist is the opt-in extra.
+        """
         rule = self._conf.get(CONF_SIRI_WHEN)
         if not rule:
-            return False
+            return True
         state = self._hass.states.get(rule[CONF_ENTITY])
         return bool(state and state.state in rule[CONF_STATES])
 
     async def post(self, request: web.Request) -> web.Response:
         route = request.query.get("route")
-        to_siri = route == "siri" or (route is None and self._siri_is_in_front_of_them())
+        to_siri = route == "siri" or (route is None and self._route_is_siri())
 
         if to_siri:
             return await self._to_siri(request.content)

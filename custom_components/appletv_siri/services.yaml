@@ -38,3 +38,27 @@ recover:
     Siri audio. The bridge does this automatically at startup and when it
     notices the stream is gone; this is the manual override. Takes about a
     minute, during which buttons briefly drop out twice.
+
+say:
+  name: Say to Siri
+  description: >-
+    Speak text to Siri on the Apple TV. Home Assistant synthesises the words and
+    streams them in as if they had been spoken — so automations and scripts can
+    issue Siri commands without a microphone.
+  fields:
+    text:
+      name: Text
+      description: What to say to Siri.
+      required: true
+      example: Play the next episode
+      selector:
+        text:
+    target:
+      name: Target
+      description: Apple TV identifier. Defaults to the currently active one.
+      example: 207551296
+      selector:
+        number:
+          mode: box
+          min: 0
+          max: 4294967295

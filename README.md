@@ -18,17 +18,23 @@ with an ordinary 8-digit setup code.
 -->
 
 ```
-  microphone            Home Assistant                    bridge            Apple TV
-  (anything) ──POST──▶  /api/appletv_siri/audio ──┬──────▶ HomeKit ────────▶ Siri
-                                                 │        Target Control
-                                                 └──────▶ Assist  (local LLM / intents)
+  microphone           Home Assistant            bridge              Apple TV
+  (anything) ──POST──▶ /api/appletv_siri/audio ─▶ HomeKit ──────────▶ Siri
+                                                  Target Control
+  or just text ──────▶ appletv_siri.say ─────────▶ (spoken for you)
 ```
 
 ## Why this exists
 
-Siri and a local assistant are good at different things, and until now you had
-to choose per-device. This lets one microphone serve both, with Home Assistant
-deciding which brain should hear each utterance.
+Siri knows things a house assistant cannot: what is playing, who is in it, where
+you are in it. Until now there was no way to reach it from Home Assistant at
+all — you could automate the whole house and still not ask the TV to skip the
+intro.
+
+By default **every utterance goes to Siri**. If you already run Assist or a
+local LLM, you can route some utterances there instead — see
+[Sharing a microphone with Assist](#sharing-a-microphone-with-assist), which is
+a secondary use case rather than the point.
 
 I couldn't find another project doing this. The HomeKit "Target Control" profile
 is documented in Apple's public non-commercial HAP specification (chapter 12),
@@ -45,9 +51,11 @@ itself, not something Apple verifies.
 - **Remote buttons over HomeKit** (`appletv_siri.press`) — menu, arrows, play/pause,
   volume, power. Independent of pyatv, so it keeps working when the Apple TV
   integration's connection is asleep or wedged.
-- **Routing**, so the same microphone reaches Siri or your local assistant
-  depending on context.
-- **Multiple Apple TVs**, individually addressable.
+- **Written commands** (`appletv_siri.say`) — Home Assistant speaks the text for
+  you, so an automation can tell Siri something without a microphone.
+- **Multiple Apple TVs on one bridge**, individually addressable, with a
+  `select` entity for choosing the target from the UI.
+- **Optional routing** to Assist if you already run a local assistant.
 
 ## Requirements
 
@@ -114,16 +122,13 @@ directory (or add this repo to HACS as a custom repository), then:
 # configuration.yaml
 appletv_siri:
   bridge_url: http://127.0.0.1:8477
-  target: 207551296                 # which Apple TV
-
-  # Route to Siri while this entity says the TV is what you're looking at.
-  siri_when:
-    entity: input_select.living_room_activity
-    states: ["Watch Apple TV"]
-
-  # Otherwise use Assist.
-  assist_pipeline: 01abcdef...        # your pipeline id (Settings → Voice assistants)
+  target: 207551296                        # which Apple TV (from /state)
+  tts_engine: tts.google_translate_en_com  # only needed for `say`
 ```
+
+That's it — every utterance goes to Siri. Routing some of them to Assist
+instead is optional and covered
+[further down](#sharing-a-microphone-with-assist).
 
 Restart Home Assistant.
 
@@ -188,10 +193,14 @@ Meanwhile the Assist route handles the house: *"turn off the kitchen lights"*,
 > set `siri_when` accordingly. Sending house commands through Assist keeps them
 > local and avoids the Apple round-trip.
 
-## Routing: Siri *and* a local LLM
+## Sharing a microphone with Assist
 
-The recommended split is **by what the person is looking at**, not by what they
-said:
+**Skip this unless you already run Assist or a local LLM.** Out of the box there
+is no `siri_when` rule and everything goes to Siri, which is what most people
+want.
+
+If you do run one, the useful split is **by what the person is looking at**, not
+by what they said:
 
 - **TV is on and in front of them → Siri.** It has the media context. "Skip
   the intro", "who plays her", "put on the next episode" are things only the
@@ -229,9 +238,56 @@ your pipeline is a chatty LLM, prefer `siri_when`.
 
 | Service | What it does |
 |---|---|
+| `appletv_siri.say` | Speak text to Siri — no microphone needed |
 | `appletv_siri.press` | Send a button (`TV_HOME`, `ARROW_UP`, `PLAY_PAUSE`, …) |
 | `appletv_siri.set_target` | Choose which Apple TV gets buttons and voice |
 | `appletv_siri.recover` | Force the Apple TV to reopen its voice data stream |
+
+### Written commands
+
+```yaml
+action: appletv_siri.say
+data:
+  text: "Play the next episode"
+```
+
+Home Assistant synthesises the speech and streams it in as if it had been
+spoken. Siri cannot tell the difference — it is just audio — so anything you
+could say, an automation can say:
+
+```yaml
+# Wind the house down and put something on
+- action: appletv_siri.say
+  data:
+    text: "Play Slow Horses on Apple TV"
+```
+
+Needs a working `tts_engine`. Home Assistant's *default* engine is the Cloud
+one, which fails opaquely when the account is signed out, so pin one:
+
+```yaml
+appletv_siri:
+  tts_engine: tts.google_translate_en_com
+```
+
+### Multiple Apple TVs
+
+**One bridge covers them all.** tvOS pushes every Apple TV in the home to the
+accessory as a separate target, so you do not run a bridge per device. Point
+voice and buttons at one with `appletv_siri.set_target`, or from the
+**`select.apple_tv_target`** entity the integration creates:
+
+```yaml
+- action: select.select_option
+  target:
+    entity_id: select.apple_tv_target
+  data:
+    option: "Bedroom (35040583)"
+```
+
+That entity also carries `siri_available`, `data_streams` and `recovering` as
+attributes, so an automation can notice voice being unavailable rather than
+discovering it when an utterance goes nowhere.
 
 ## The one quirk worth understanding
 
@@ -298,7 +354,8 @@ the bridge directly.
 |---|---|---|
 | `bridge_url` | `http://127.0.0.1:8477` | |
 | `target` | *(bridge's active target)* | Apple TV identifier from `/state` |
-| `siri_when.entity` / `.states` | — | Route to Siri while entity is in one of these states |
+| `siri_when.entity` / `.states` | *(absent)* | Route to Siri while entity is in one of these states. **Absent means everything goes to Siri** |
+| `tts_engine` | *(HA default)* | Engine for `say`. Pin it — HA's default is the Cloud engine, which fails when signed out |
 | `assist_pipeline` | *(HA default)* | **Pin this.** HA's default pipeline has no STT engine, and an unpinned pipeline silently returns nothing |
 | `fallback_to_siri` | `false` | Assist first, Siri if it can't handle it (buffers) |
 | `max_buffer_seconds` | `15` | Ceiling on a buffered utterance |
