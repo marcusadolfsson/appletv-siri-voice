@@ -1,0 +1,7 @@
+# Makes this repo installable as a Home Assistant add-on repository, alongside
+# being a HACS integration repository. Supervisor scans the root for folders
+# containing config.yaml (here: addon/) and ignores everything else; HACS reads
+# hacs.json and custom_components/ and ignores addon/. One repo, two consumers.
+name: Apple TV Siri Voice
+url: https://github.com/marcusadolfsson/appletv-siri-voice
+maintainer: Marcus Adolfsson <marcus@adolfsson.com>

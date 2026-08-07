@@ -1,0 +1,65 @@
+name: Apple TV Siri Voice Bridge
+version: "1.0.0"
+slug: appletv_siri_bridge
+description: >-
+  HomeKit Target Control accessory that lets Home Assistant send button presses
+  and voice to Siri on an Apple TV.
+url: https://github.com/marcusadolfsson/appletv-siri-voice
+# No `image:` key on purpose. Without it Supervisor BUILDS the add-on locally
+# from this Dockerfile, which needs no registry, no package permissions and no
+# published tags -- the right trade while this is being tested. Add
+# `image: ghcr.io/<owner>/appletv-siri-bridge-{arch}` once CI publishes, and
+# installs become a pull instead of a several-minute build on the user's box.
+arch:
+  - amd64
+  - aarch64
+  - armv7
+init: false
+boot: auto
+startup: services
+
+# REQUIRED, not a preference. HomeKit finds and pairs accessories over mDNS on
+# the LAN, which bridge networking does not carry. The accessory is simply never
+# discovered without this.
+host_network: true
+
+# The bridge writes its pairing state to /data/persist (HAP_STORAGE in the
+# Dockerfile). /data is the add-on's persistent volume, so this needs no mapping
+# -- but losing it drops the Home app pairing and every paired Apple TV, so it
+# is worth knowing where it lives before you "start fresh".
+map: []
+
+options:
+  name: Voice Remote
+  uuid_seed: appletv-siri-voice.accessory
+  pincode: "031-45-154"
+  bind_interface: ""
+  expose_control_api: false
+
+schema:
+  # Shown in the Home app when pairing.
+  name: str
+  # The accessory UUID is derived from this, and every characteristic instance
+  # id is derived from THAT -- so changing it after pairing invalidates the
+  # Apple TVs' cached view and breaks Siri until they are re-paired. Treat it as
+  # write-once.
+  uuid_seed: str
+  # The default is published in this repo, so anyone who can reach your LAN
+  # knows it. Change it before pairing if that bothers you.
+  pincode: str
+  # Leave EMPTY unless you know you need it. Empty binds every interface, which
+  # is what HAP-NodeJS does by default and is right for a single-homed host. The
+  # interface name is not predictable inside an add-on (eth0 / end0 / enp3s0 /
+  # a bridge), so there is no safe default to ship.
+  bind_interface: str?
+  # The control API is how the Home Assistant integration drives the bridge. It
+  # binds loopback only by default. Turning this on binds all interfaces and
+  # makes /press and /siri/stream an UNAUTHENTICATED "control the TV and talk to
+  # Siri" endpoint for anything on your LAN -- only enable it if Home Assistant
+  # runs on a different machine, and firewall it if you do.
+  expose_control_api: bool
+
+ports:
+  47129/tcp: 47129
+ports_description:
+  47129/tcp: HomeKit accessory (HAP). Must be reachable from your Apple TVs.

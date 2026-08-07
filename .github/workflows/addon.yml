@@ -1,0 +1,47 @@
+name: Add-on
+
+on:
+  push:
+    paths: ["addon/**", "bridge/**", "repository.yaml", ".github/workflows/addon.yml"]
+  pull_request:
+    paths: ["addon/**", "bridge/**", "repository.yaml"]
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: Lint config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Validates config.yaml against Supervisor's real schema. This is most of
+      # what can be checked without a Supervisor to install into.
+      - uses: frenck/action-addon-linter@v2
+        with:
+          path: "./addon"
+
+  build:
+    name: Build ${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, aarch64, armv7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      # Build only -- no push. With no native dependencies (opusscript is
+      # WASM/JS, not a binding) a successful build on every arch is most of what
+      # "supports this architecture" means here.
+      - name: Resolve base image
+        id: base
+        run: |
+          BASE=$(python3 -c "import yaml;print(yaml.safe_load(open('addon/build.yaml'))['build_from']['${{ matrix.arch }}'])")
+          echo "image=$BASE" >> "$GITHUB_OUTPUT"
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: addon/Dockerfile
+          build-args: BUILD_FROM=${{ steps.base.outputs.image }}
+          push: false

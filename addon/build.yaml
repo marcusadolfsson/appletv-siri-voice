@@ -1,0 +1,13 @@
+# Alpine base, one per arch. Node comes from apk.
+#
+# NOTE: the image most add-on tutorials reach for --
+# ghcr.io/home-assistant/{arch}-base-nodejs -- is NOT published under that name.
+# Checked against the registry: {arch}-base has tags (3.19-3.21), the nodejs
+# variant 404s. Do not "fix" this back to base-nodejs.
+build_from:
+  amd64: ghcr.io/home-assistant/amd64-base:3.21
+  aarch64: ghcr.io/home-assistant/aarch64-base:3.21
+  armv7: ghcr.io/home-assistant/armv7-base:3.21
+labels:
+  org.opencontainers.image.source: https://github.com/marcusadolfsson/appletv-siri-voice
+  org.opencontainers.image.licenses: Apache-2.0
