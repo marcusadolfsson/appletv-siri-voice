@@ -23,11 +23,10 @@ startup: services
 # discovered without this.
 host_network: true
 
-# The bridge writes its pairing state to /data/persist (HAP_STORAGE in the
-# Dockerfile). /data is the add-on's persistent volume, so this needs no mapping
-# -- but losing it drops the Home app pairing and every paired Apple TV, so it
-# is worth knowing where it lives before you "start fresh".
-map: []
+# No `map:`. The bridge writes its pairing state to /data/persist (HAP_STORAGE in
+# the Dockerfile) and /data is the add-on's own persistent volume, so nothing
+# needs mapping -- but losing it drops the Home app pairing and every paired
+# Apple TV, so it is worth knowing where it lives before you "start fresh".
 
 options:
   name: Voice Remote
@@ -59,7 +58,7 @@ schema:
   # runs on a different machine, and firewall it if you do.
   expose_control_api: bool
 
-ports:
-  47129/tcp: 47129
-ports_description:
-  47129/tcp: HomeKit accessory (HAP). Must be reachable from your Apple TVs.
+# No `ports:` either. Port mapping is what bridge networking needs; with
+# host_network the bridge binds the host's interfaces directly, so declaring
+# maps here would describe something that does not happen. HAP is on 47129 and
+# the control API on 8477, both straight onto the host.
