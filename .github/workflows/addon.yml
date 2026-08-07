@@ -25,7 +25,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [amd64, aarch64, armv7]
+        include:
+          # `platform` is NOT optional. Without it build-push-action builds for
+          # the RUNNER's platform (amd64) whatever base image it is handed, and
+          # the two failure modes hide each other: aarch64-base is a proper OCI
+          # index declaring only linux/arm64, so the build correctly fails with
+          # no matching manifest -- while armv7-base is a legacy single manifest
+          # that Docker pulls regardless of platform, so that job went GREEN
+          # without having emulated anything. One honest failure, one dishonest
+          # pass, same root cause.
+          - arch: amd64
+            platform: linux/amd64
+          - arch: aarch64
+            platform: linux/arm64
+          - arch: armv7
+            platform: linux/arm/v7
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -44,4 +58,5 @@ jobs:
           context: .
           file: addon/Dockerfile
           build-args: BUILD_FROM=${{ steps.base.outputs.image }}
+          platforms: ${{ matrix.platform }}
           push: false
