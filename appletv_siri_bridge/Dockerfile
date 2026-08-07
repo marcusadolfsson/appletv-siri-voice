@@ -26,7 +26,7 @@ RUN mkdir -p /app/licenses && \
 
 COPY LICENSE NOTICE THIRD_PARTY.md ./
 COPY bridge/index.js ./
-COPY addon/run.sh /run.sh
+COPY appletv_siri_bridge/run.sh /run.sh
 RUN chmod a+x /run.sh
 
 # Pairing state on the add-on's persistent volume. Losing it drops the Home app

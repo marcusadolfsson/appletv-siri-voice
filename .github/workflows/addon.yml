@@ -2,9 +2,9 @@ name: Add-on
 
 on:
   push:
-    paths: ["addon/**", "bridge/**", "repository.yaml", ".github/workflows/addon.yml"]
+    paths: ["appletv_siri_bridge/**", "bridge/**", "repository.yaml", ".github/workflows/addon.yml"]
   pull_request:
-    paths: ["addon/**", "bridge/**", "repository.yaml"]
+    paths: ["appletv_siri_bridge/**", "bridge/**", "repository.yaml"]
   workflow_dispatch:
 
 jobs:
@@ -17,7 +17,7 @@ jobs:
       # what can be checked without a Supervisor to install into.
       - uses: frenck/action-addon-linter@v2
         with:
-          path: "./addon"
+          path: "./appletv_siri_bridge"
 
   build:
     name: Build ${{ matrix.arch }}
@@ -50,13 +50,13 @@ jobs:
       - name: Resolve base image
         id: base
         run: |
-          BASE=$(python3 -c "import yaml;print(yaml.safe_load(open('addon/build.yaml'))['build_from']['${{ matrix.arch }}'])")
+          BASE=$(python3 -c "import yaml;print(yaml.safe_load(open('appletv_siri_bridge/build.yaml'))['build_from']['${{ matrix.arch }}'])")
           echo "image=$BASE" >> "$GITHUB_OUTPUT"
       - name: Build
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: addon/Dockerfile
+          file: appletv_siri_bridge/Dockerfile
           build-args: BUILD_FROM=${{ steps.base.outputs.image }}
           platforms: ${{ matrix.platform }}
           push: false

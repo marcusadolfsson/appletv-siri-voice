@@ -3,7 +3,7 @@ version: "1.0.0"
 slug: appletv_siri_bridge
 description: >-
   HomeKit Target Control accessory that lets Home Assistant send button presses
-  and voice to Siri on an Apple TV.
+  and voice to Siri on an Apple TV
 url: https://github.com/marcusadolfsson/appletv-siri-voice
 # No `image:` key on purpose. Without it Supervisor BUILDS the add-on locally
 # from this Dockerfile, which needs no registry, no package permissions and no
