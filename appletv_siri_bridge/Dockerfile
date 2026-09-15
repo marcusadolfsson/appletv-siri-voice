@@ -8,7 +8,7 @@ FROM ${BUILD_FROM}
 RUN apk add --no-cache nodejs npm
 
 WORKDIR /app
-COPY bridge/package.json ./
+COPY package.json ./
 RUN npm install --omit=dev && npm cache clean --force
 
 # The image bundles node_modules, so Apache-2.0 §4 and the MIT/BSD notice
@@ -25,8 +25,8 @@ RUN mkdir -p /app/licenses && \
     echo "collected $(ls /app/licenses | wc -l) dependency licences"
 
 COPY LICENSE NOTICE THIRD_PARTY.md ./
-COPY bridge/index.js ./
-COPY appletv_siri_bridge/run.sh /run.sh
+COPY index.js ./
+COPY run.sh /run.sh
 RUN chmod a+x /run.sh
 
 # Pairing state on the add-on's persistent volume. Losing it drops the Home app

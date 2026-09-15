@@ -1,0 +1,11 @@
+Apple TV Siri Voice
+Copyright 2026 Marcus Adolfsson
+
+Licensed under the Apache License, Version 2.0.
+
+This product bundles third-party software when built as a container image.
+See THIRD_PARTY.md for the components and their licences.
+
+This project is not affiliated with, endorsed by, or sponsored by Apple Inc.
+"Siri", "Apple TV", "HomeKit" and "tvOS" are trademarks of Apple Inc., used
+here only to describe interoperability.
