@@ -228,7 +228,7 @@ because it can see what's playing:
 Siri, which is the point of the project.
 
 If you already run a voice assistant — Home Assistant's own, or your own service
-— one microphone can feed both. There are two ways round it, and which is better
+— one microphone can feed both. There are three ways round it, and which is better
 depends on where you want the decision to live.
 
 ### Option 1 — decide before it reaches this integration
@@ -293,6 +293,21 @@ Two uses: testing both paths without touching the entity `siri_when` watches,
 and a microphone that should always do one thing — a kitchen tablet that only
 ever runs the house can post `?route=assist` and never reach Siri, while the
 living room remote follows the rule.
+
+### Option 3 — start from an Assist satellite
+
+If your microphones are already **Home Assistant voice satellites** (a Voice PE,
+an ESPHome or Wyoming satellite), look at
+[**Siri Passthrough**](https://github.com/b2dmx/ha-siri-passthrough) by
+[@b2dmx](https://github.com/b2dmx). It adds a speech-to-text option to Assist
+that never transcribes anything — it passes the satellite's audio straight
+through to Siri while you are still talking, and can switch between Siri and an
+ordinary Assist command on an entity's state.
+
+It is a separate project built on this bridge's
+[control API](#bridge-control-api) rather than on this integration, so it works
+alongside it or on its own. Pick it when the microphone is a satellite; pick the
+options above when the microphone can post audio to a URL.
 
 ## Services
 
@@ -517,6 +532,72 @@ restart the Apple TV — that always clears it.
 
 (Clearing the stored target configurations does *not* help; the Apple TV
 re-adds its targets and still opens nothing. Only the capability change works.)
+
+## Bridge control API
+
+The integration drives the bridge over a small HTTP API on port `8477`. It is a
+**supported interface**, not an internal detail: other projects (such as
+[Siri Passthrough](https://github.com/b2dmx/ha-siri-passthrough)) build on it,
+and a change that breaks existing callers is treated as a breaking release.
+
+It listens on `127.0.0.1` by default. Home Assistant on the same host reaches it
+there: the add-on and the standalone container both use host networking, and so
+does Home Assistant on HA OS and in the usual Docker install, so they all share
+the host's loopback. You do not need to expose it for a same-host caller. Read
+[Security](#security) before binding it anywhere else.
+
+| Request | What it does |
+|---|---|
+| `GET /state` | Pairing and link status — see below. |
+| `POST /siri/stream?target=<id>` | Speak to Siri. The body is the utterance. |
+| `POST /press/<BUTTON>?target=<id>` | Press and release one button. |
+| `POST /active/<id>` | Make `<id>` the Apple TV that later calls go to. |
+| `POST /recover` | Rebuild the data stream. Returns `202` at once; takes about a minute. |
+
+`<id>` is a target identifier from `/state`. `?target=` is optional on both
+calls that take it; it selects and acts in one request, which avoids a race
+when several Apple TVs are driven by separate callers. Without it, the call
+goes to whichever Apple TV is currently active.
+
+Buttons: `MENU`, `PLAY_PAUSE`, `TV_HOME`, `SELECT`, `ARROW_UP`, `ARROW_DOWN`,
+`ARROW_LEFT`, `ARROW_RIGHT`, `VOLUME_UP`, `VOLUME_DOWN`, `POWER`, `SIRI`
+(case-insensitive).
+
+Every response is JSON. Errors carry an `error` string.
+
+### `GET /state`
+
+```json
+{
+  "active": true,
+  "activeIdentifier": 1,
+  "targets": { "1": { "name": "Living Room", "configured": true } },
+  "siriAvailable": true,
+  "dataStreams": [1],
+  "recovering": false
+}
+```
+
+`active` means an Apple TV has claimed the remote. `dataStreams` lists the
+targets with a live HomeKit data stream — Siri audio can only reach those.
+
+### `POST /siri/stream`
+
+The request body is **raw PCM, 16-bit signed little-endian, 16 kHz, mono** — no
+WAV header. SIRI is held down for as long as the body lasts, and **the end of
+the body is the end of the utterance**, so send it chunked while the person is
+speaking. Audio is forwarded as it arrives: send it at the pace it was
+captured, because a burst faster than real time reaches Siri as noise.
+
+| Status | Meaning |
+|---|---|
+| `200` | `{"ok": true, "bytes": …, "ms": …, "target": …}` once the body ends. |
+| `409` | Another utterance is still in flight (after a short wait), or no Apple TV has claimed the remote. Only one utterance at a time, across every Apple TV. |
+| `503` | That Apple TV has no data stream. Recovery has been started; the body has `retryAfterSeconds: 60`. |
+
+`/siri/file?file=<path>` also exists, for testing without a microphone: it
+replays a WAV **from the bridge's own filesystem**. It is not part of the
+supported interface.
 
 ## Security
 
