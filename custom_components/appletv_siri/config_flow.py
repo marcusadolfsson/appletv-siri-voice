@@ -4,9 +4,11 @@ Exists for more than the notice on the integrations page: an integration with no
 config entry cannot create **devices**, so without this every Apple TV's buttons
 would be named "Home" with no way to tell them apart.
 
-Connection settings live here. The routing keys — `sources`, `siri_when`,
-`assist_pipeline` — stay in YAML, because they are nested and awkward in a form,
-and they are merged over whatever is configured here.
+Connection settings are asked at setup. The routing rule and what happens to
+an utterance that is not for Siri are in **Configure**, so both the HTTP view
+and the Assist speech-to-text entity read one rule that can be changed without
+touching YAML. A YAML `siri_when:` block is still honoured, and is adopted into
+the entry's options when the YAML is first imported.
 
 There is no "default Apple TV" to configure: every command names its own.
 """
@@ -22,10 +24,28 @@ from homeassistant.config_entries import ConfigEntry, ConfigFlow, OptionsFlow
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.selector import SelectOptionDict, TextSelector
+from homeassistant.helpers.selector import (
+    EntitySelector,
+    EntitySelectorConfig,
+    SelectOptionDict,
+    TextSelector,
+)
 
 from .bridge import Bridge, BridgeError
-from .const import CONF_BRIDGE_URL, CONF_TTS_ENGINE, DEFAULT_BRIDGE_URL, DOMAIN
+from .const import (
+    CONF_BRIDGE_URL,
+    CONF_ENTITY,
+    CONF_FALLBACK_AGENT,
+    CONF_FALLBACK_STT,
+    CONF_SIRI_WHEN,
+    CONF_SIRI_WHEN_ENTITY,
+    CONF_SIRI_WHEN_STATES,
+    CONF_STATES,
+    CONF_TTS_ENGINE,
+    DEFAULT_BRIDGE_URL,
+    DEFAULT_SIRI_WHEN_STATES,
+    DOMAIN,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -90,9 +110,17 @@ class AppleTvSiriConfigFlow(ConfigFlow, domain=DOMAIN):
         url = (data.get(CONF_BRIDGE_URL) or DEFAULT_BRIDGE_URL).rstrip("/")
         await self.async_set_unique_id(url)
         self._abort_if_unique_id_configured()
+        # A YAML routing rule becomes the entry's rule, so it shows up in
+        # Configure and there is one place to edit it from then on.
+        options: dict[str, Any] = {}
+        rule = data.get(CONF_SIRI_WHEN) or {}
+        if rule.get(CONF_ENTITY):
+            options[CONF_SIRI_WHEN_ENTITY] = rule[CONF_ENTITY]
+            options[CONF_SIRI_WHEN_STATES] = ", ".join(rule.get(CONF_STATES) or [])
         return self.async_create_entry(
             title="Apple TV Siri Voice (YAML)",
             data={CONF_BRIDGE_URL: url, CONF_TTS_ENGINE: data.get(CONF_TTS_ENGINE)},
+            options=options,
         )
 
     @staticmethod
@@ -102,20 +130,42 @@ class AppleTvSiriConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class AppleTvSiriOptionsFlow(OptionsFlow):
-    """Change the speech engine later."""
+    """The routing rule, the fallbacks, and the speech engine.
+
+    The rule is the same one the HTTP view and the Siri speech-to-text entity
+    both read. Leaving the entity blank means everything goes to Siri.
+    """
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         if user_input is not None:
+            # Blank means "not set", so a cleared field really clears it.
             return self.async_create_entry(
-                data={CONF_TTS_ENGINE: user_input.get(CONF_TTS_ENGINE) or None}
+                data={k: v for k, v in user_input.items() if v not in (None, "")}
             )
         current = {**self.config_entry.data, **self.config_entry.options}
+
+        def _suggest(key: str, default: Any = None) -> dict[str, Any]:
+            value = current.get(key, default)
+            return {"suggested_value": value} if value not in (None, "") else {}
+
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema({
                 vol.Optional(
-                    CONF_TTS_ENGINE,
-                    description={"suggested_value": current.get(CONF_TTS_ENGINE)},
+                    CONF_SIRI_WHEN_ENTITY, description=_suggest(CONF_SIRI_WHEN_ENTITY)
+                ): EntitySelector(),
+                vol.Optional(
+                    CONF_SIRI_WHEN_STATES,
+                    description=_suggest(CONF_SIRI_WHEN_STATES, DEFAULT_SIRI_WHEN_STATES),
+                ): TextSelector(),
+                vol.Optional(
+                    CONF_FALLBACK_STT, description=_suggest(CONF_FALLBACK_STT)
+                ): EntitySelector(EntitySelectorConfig(domain="stt")),
+                vol.Optional(
+                    CONF_FALLBACK_AGENT, description=_suggest(CONF_FALLBACK_AGENT)
+                ): EntitySelector(EntitySelectorConfig(domain="conversation")),
+                vol.Optional(
+                    CONF_TTS_ENGINE, description=_suggest(CONF_TTS_ENGINE)
                 ): TextSelector(),
             }),
         )
