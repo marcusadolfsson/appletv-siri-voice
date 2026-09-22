@@ -7,7 +7,9 @@
   "config_flow": true,
   "dependencies": [
     "http",
-    "assist_pipeline"
+    "assist_pipeline",
+    "conversation",
+    "stt"
   ],
   "documentation": "https://github.com/marcusadolfsson/appletv-siri-voice",
   "iot_class": "local_push",

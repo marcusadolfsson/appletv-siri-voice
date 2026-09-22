@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Apple TV Siri Voice",
-        "description": "Where is the bridge? Pair it in the Home app first \u2014 it needs to have seen your Apple TVs.",
+        "description": "Where is the bridge? Pair it in the Home app first — it needs to have seen your Apple TVs.",
         "data": {
           "bridge_url": "Bridge URL",
           "tts_engine": "Speech engine for written commands (optional)"
@@ -22,8 +22,20 @@
     "step": {
       "init": {
         "title": "Apple TV Siri Voice",
+        "description": "**Routing.** With no entity set, every utterance goes to Siri. Set one and only utterances made while it is in one of the listed states go to Siri; the rest go to the fallbacks below. The usual rule is the Apple TV itself: `media_player.apple_tv` while `on, idle, playing, paused`.\n\n**Assist satellites.** Make a pipeline whose speech-to-text is an Apple TV's **Siri** entity and whose conversation agent is **Siri (silent)**. The silent agent exists only so the pipeline does not say *\"Sorry, I didn't understand\"* over Siri's reply — it answers Siri's utterances with silence and passes anything else to the fallback agent.",
         "data": {
+          "siri_when_entity": "Send to Siri while this entity…",
+          "siri_when_states": "…is in one of these states",
+          "fallback_stt": "Otherwise, recognise speech with",
+          "fallback_agent": "Otherwise, answer with",
           "tts_engine": "Speech engine for written commands"
+        },
+        "data_description": {
+          "siri_when_entity": "Leave blank to send everything to Siri.",
+          "siri_when_states": "Comma separated. `idle` is the Apple TV awake on its home screen.",
+          "fallback_stt": "A real speech-to-text engine, for Assist-satellite utterances that are not for Siri.",
+          "fallback_agent": "The agent that answers those. Not *Siri (silent)*.",
+          "tts_engine": "Pin it — Home Assistant's default is the Cloud engine, which fails when signed out."
         }
       }
     }

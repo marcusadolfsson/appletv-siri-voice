@@ -255,6 +255,12 @@ speech-to-text → conversation agent → text-to-speech. The conversation agent
 be Home Assistant's own intent matcher, or an LLM (OpenAI, Ollama, Gemini,
 anything with a conversation integration).
 
+Set the rule in **Settings → Devices & Services → Apple TV Siri Voice →
+Configure**: the entity to watch and the states that mean "Siri". The same
+rule is what an Assist satellite's **Siri** speech-to-text entity reads, so it
+is set once. In YAML it looks like this, and a YAML block is adopted into the
+UI on first import:
+
 ```yaml
 appletv_siri:
   # Siri while the TV is the current activity; the pipeline otherwise.
@@ -262,8 +268,8 @@ appletv_siri:
     entity: input_select.living_room_activity
     states: ["Watch Apple TV"]
 
-  # Which pipeline handles everything else. Settings → Voice assistants;
-  # the id is in the URL when you open one.
+  # Which pipeline handles everything else (HTTP view only). Settings →
+  # Voice assistants; the id is in the URL when you open one.
   assist_pipeline: 01abcdef2345...
 ```
 
@@ -296,18 +302,38 @@ living room remote follows the rule.
 
 ### Option 3 — start from an Assist satellite
 
-If your microphones are already **Home Assistant voice satellites** (a Voice PE,
-an ESPHome or Wyoming satellite), look at
-[**Siri Passthrough**](https://github.com/b2dmx/ha-siri-passthrough) by
-[@b2dmx](https://github.com/b2dmx). It adds a speech-to-text option to Assist
-that never transcribes anything — it passes the satellite's audio straight
-through to Siri while you are still talking, and can switch between Siri and an
-ordinary Assist command on an entity's state.
+If your microphones are already **Home Assistant voice satellites** — a Voice
+PE, an ESPHome or Wyoming satellite, a hardware remote with a mic button —
+they cannot POST to a URL. The only thing they speak is an Assist pipeline, so
+this integration meets them there.
 
-It is a separate project built on this bridge's
-[control API](#bridge-control-api) rather than on this integration, so it works
-alongside it or on its own. Pick it when the microphone is a satellite; pick the
-options above when the microphone can post audio to a URL.
+Every Apple TV gets a **Siri** speech-to-text entity. It never transcribes
+anything: it streams the satellite's audio to Siri while you are still talking,
+which is what makes it feel like the Siri Remote rather than a recording.
+
+**Settings → Voice assistants → Add assistant:**
+
+| Stage | Pick |
+|---|---|
+| Speech-to-text | **Siri** (under the Apple TV you want) |
+| Conversation agent | **Siri (silent)** |
+| Text-to-speech | anything — it is never used on the Siri path |
+
+Point the satellite at that pipeline and hold its mic button.
+
+**Why the silent agent.** A pipeline always runs speech-to-text, then a
+conversation agent, then text-to-speech. When speech-to-text was "send it to
+Siri", the transcript it hands on is a placeholder. Give that to the normal
+Home Assistant agent and it says *"Sorry, I didn't understand"* — out loud, on
+the satellite, while Siri is answering on the television. *Siri (silent)*
+answers the placeholder with silence. That is its whole job.
+
+**Routing works here too.** The rule from Option 2 is the same rule: while the
+Apple TV is in one of the listed states the utterance goes to Siri, otherwise
+it goes to the **fallback speech-to-text engine** and the **fallback agent**
+set in **Configure** — so one satellite runs the television *and* the house,
+with no buffering, because the decision is a state lookup made before the
+first chunk of audio is read.
 
 ## Services
 
@@ -642,18 +668,21 @@ Asked during setup, and editable afterwards from **Configure**.
 | Key | Default | Notes |
 |---|---|---|
 | `bridge_url` | `http://127.0.0.1:8477` | Where the bridge's control API is |
+| `siri_when_entity` / `siri_when_states` | *(blank)* / `on, idle, playing, paused` | The routing rule, read by both the HTTP view and the Siri speech-to-text entities. **Blank entity means everything goes to Siri** |
+| `fallback_stt` | *(none)* | Assist satellites only: the real speech-to-text engine for utterances the rule sends away from Siri |
+| `fallback_agent` | *(none)* | Assist satellites only: the agent that answers those. Not *Siri (silent)* |
 | `tts_engine` | *(HA default)* | Engine for `say`. Pin it — HA's default is the Cloud engine, which fails when signed out |
 
-### Integration — YAML only
+### Integration — YAML
 
-Routing is nested, so it stays in `configuration.yaml`. A YAML block is adopted
-into a config entry automatically, and these keys are merged over whatever the
-UI holds — so the two can be used together.
+A YAML block is adopted into a config entry automatically. `siri_when` there
+becomes the entry's routing rule the first time it is imported, and keeps
+working afterwards; the rule in **Configure** wins if both are set.
 
 | Key | Default | Notes |
 |---|---|---|
-| `siri_when.entity` / `.states` | *(absent)* | Route to Siri while entity is in one of these states. **Absent means everything goes to Siri** |
-| `assist_pipeline` | *(HA default)* | Which Assist pipeline handles non-Siri utterances. **Pin it** — HA's default has no speech-to-text engine and silently returns nothing |
+| `siri_when.entity` / `.states` | *(absent)* | Same rule as above, for people who already have it here |
+| `assist_pipeline` | *(HA default)* | HTTP view only: which Assist pipeline handles non-Siri utterances. **Pin it** — HA's default has no speech-to-text engine and silently returns nothing |
 
 
 

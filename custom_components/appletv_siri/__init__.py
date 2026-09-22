@@ -12,6 +12,11 @@ A microphone anywhere on your network POSTs raw audio to
 Optionally the two chain: let Assist try first, and forward anything it can't
 handle to Siri. See ``fallback_to_siri`` in the README for the trade-off, which
 is real — the fallback has to buffer the utterance instead of streaming it.
+
+Microphones that cannot POST anywhere — Assist satellites, and hardware remotes
+with a mic button — come in the other way: a pipeline whose speech-to-text
+stage is this integration's ``Siri`` entity (see ``stt.py``). Both entrances
+read the same routing rule, in ``routing.py``.
 """
 
 from __future__ import annotations
@@ -36,6 +41,7 @@ from homeassistant.helpers.typing import ConfigType
 
 from .bridge import Bridge, BridgeError, BridgeUnavailable
 from .coordinator import BridgeCoordinator
+from .routing import route_is_siri
 from .const import (
     ATTR_BUTTON,
     ATTR_TARGET,
@@ -43,9 +49,7 @@ from .const import (
     BUTTONS,
     CONF_ASSIST_PIPELINE,
     CONF_BRIDGE_URL,
-    CONF_ENTITY,
     CONF_SIRI_WHEN,
-    CONF_STATES,
     CONF_TARGET,
     DEFAULT_BRIDGE_URL,
     DOMAIN,
@@ -79,10 +83,11 @@ CONFIG_SCHEMA = vol.Schema(
 )
 
 
-PLATFORMS = ["binary_sensor", "button", "sensor", "text"]
+PLATFORMS = ["binary_sensor", "button", "conversation", "sensor", "stt", "text"]
 
-# Routing keys that stay in YAML: they are nested and awkward in a config form,
-# and they are merged over whatever the config entry holds.
+# Still read from YAML for anyone who has them there. The routing rule is set
+# from the UI now (Configure); a YAML `siri_when:` keeps working and is folded
+# into the same rule by routing.py, with the UI winning if both are present.
 YAML_ONLY = (CONF_SIRI_WHEN, CONF_ASSIST_PIPELINE)
 
 
@@ -273,19 +278,6 @@ class SiriRemoteAudioView(HomeAssistantView):
         return None
 
 
-    def _route_is_siri(self, conf: dict[str, Any] | None = None) -> bool:
-        """Where this utterance should go.
-
-        With no `siri_when` rule everything goes to Siri — that is the whole
-        point of the integration, and routing to Assist is the opt-in extra.
-        """
-        conf = conf or self._conf
-        rule = conf.get(CONF_SIRI_WHEN)
-        if not rule:
-            return True
-        state = self._hass.states.get(rule[CONF_ENTITY])
-        return bool(state and state.state in rule[CONF_STATES])
-
     async def post(self, request: web.Request, target: str | None = None) -> web.Response:
         conf = self._conf
         # The URL names the Apple TV. There is no default: an utterance with no
@@ -299,7 +291,7 @@ class SiriRemoteAudioView(HomeAssistantView):
                 "apple_tvs": self._known_urls(),
             }, status_code=400)
         route = request.query.get("route")
-        to_siri = route == "siri" or (route is None and self._route_is_siri(conf))
+        to_siri = route == "siri" or (route is None and route_is_siri(self._hass, conf))
 
         if to_siri:
             return await self._to_siri(request.content, conf)
