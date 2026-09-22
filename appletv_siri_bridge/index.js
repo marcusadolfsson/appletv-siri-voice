@@ -15,7 +15,7 @@
 
 const {
   Accessory, Categories, Characteristic, RemoteController, ButtonType,
-  uuid, Service, HAPStorage,
+  uuid, Service, HAPStorage, AccessoryInfo,
 } = require('hap-nodejs');
 const http = require('http');
 const fs = require('fs');
@@ -183,6 +183,36 @@ async function publishAccessory(withSiri) {
   log(`[hap] published ${withSiri ? 'with Siri' : 'buttons-only'} on ${HAP_PORT}`);
 }
 
+/**
+ * Has any controller been paired with this accessory yet?
+ *
+ * Recovery cannot help an accessory nothing is paired with: the data stream it
+ * restores is one an Apple TV opens as a configured TARGET, and there are no
+ * targets before the Home app has added the remote. Worse, recovery works by
+ * unpublishing and re-publishing, and doing that while the Home app is partway
+ * through pairing tears the HAP session down and fails the pairing with
+ * OSStatus -6718 (kNotInitializedErr). With nothing paired the boot check fired
+ * at 25 s and the watchdog every 5 minutes after that, so there was never a
+ * safe window to pair in.
+ *
+ * Public API only: AccessoryInfo.load() reads the persisted pairing record
+ * through the same HAPStorage instance the accessory writes its pairings to, so
+ * it sees a new pairing the moment it is saved.
+ *
+ * If the state cannot be read, this answers TRUE. The guard may only ever
+ * suppress recovery when it is sure nothing is paired; an unexpected failure
+ * falls back to exactly the behaviour from before it existed.
+ */
+function hasPairings() {
+  try {
+    const info = AccessoryInfo.load(USERNAME);
+    return !!(info && info.paired());
+  } catch (e) {
+    log('[hap] could not read pairing state, assuming paired:', e.message);
+    return true;
+  }
+}
+
 /** Apple TVs that have an open HomeKit Data Stream to us. */
 function hdsTargets() {
   const m = live && live.rc && live.rc.dataStreamConnections;
@@ -235,8 +265,19 @@ async function waitFor(pred, timeoutMs, stepMs = 1000) {
  *
  * Buttons keep working throughout except for a ~2 s gap at each re-publish.
  */
+// Logged once per unpaired stretch rather than on every watchdog tick.
+let waitingForPairingLogged = false;
+
 async function recoverHds(reason) {
   if (recovering) return false;
+  if (!hasPairings()) {
+    if (!waitingForPairingLogged) {
+      log(`[recover] skipped (${reason}) — nothing is paired yet. Add the remote in the Home app; recovery resumes once it is.`);
+      waitingForPairingLogged = true;
+    }
+    return false;
+  }
+  waitingForPairingLogged = false;
   recovering = true;
   const started = Date.now();
   try {

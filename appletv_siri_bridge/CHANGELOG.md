@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.2
+
+- Fix: adding the accessory in the Home app failed with OSStatus -6718
+  (kNotInitializedErr). The bridge repairs a dead HomeKit data stream by
+  unpublishing and re-publishing itself, and with nothing paired there can be
+  no data stream -- so it did that 25 s after boot and every 5 minutes after,
+  tearing down whatever pairing was in progress. Recovery is now skipped until
+  something is paired, and resumes on its own once it is. Nothing to switch on
+  or off: pairing just works.
+
 ## 1.0.1
 
 - Fix: the add-on could not be built by Supervisor. The Dockerfile copied
