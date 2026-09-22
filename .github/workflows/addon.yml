@@ -2,9 +2,9 @@ name: Add-on
 
 on:
   push:
-    paths: ["appletv_siri_bridge/**", "bridge/**", "repository.yaml", ".github/workflows/addon.yml"]
+    paths: ["appletv_siri_bridge/**", "bridge/**", "LICENSE", "NOTICE", "THIRD_PARTY.md", "repository.yaml", ".github/workflows/addon.yml"]
   pull_request:
-    paths: ["appletv_siri_bridge/**", "bridge/**", "repository.yaml"]
+    paths: ["appletv_siri_bridge/**", "bridge/**", "LICENSE", "NOTICE", "THIRD_PARTY.md", "repository.yaml", ".github/workflows/addon.yml"]
   workflow_dispatch:
 
 jobs:
@@ -18,6 +18,34 @@ jobs:
       - uses: frenck/action-addon-linter@v2
         with:
           path: "./appletv_siri_bridge"
+
+  # The add-on folder carries its own copies of the bridge and the licence
+  # files, because Supervisor builds with that folder as the context and cannot
+  # reach anything outside it. The container build (docker-compose, hap-remote)
+  # still builds from bridge/. Two copies of index.js drift silently -- the
+  # add-on would keep running the old bridge with nothing to say so -- so this
+  # fails the moment they differ.
+  copies:
+    name: Add-on copies match their sources
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare
+        run: |
+          fail=0
+          for pair in \
+              bridge/index.js:appletv_siri_bridge/index.js \
+              bridge/package.json:appletv_siri_bridge/package.json \
+              LICENSE:appletv_siri_bridge/LICENSE \
+              NOTICE:appletv_siri_bridge/NOTICE \
+              THIRD_PARTY.md:appletv_siri_bridge/THIRD_PARTY.md; do
+            src=${pair%%:*}; dst=${pair##*:}
+            if ! cmp -s "$src" "$dst"; then
+              echo "::error file=$dst::$dst differs from $src -- run: cp $src $dst"
+              fail=1
+            fi
+          done
+          exit $fail
 
   build:
     name: Build ${{ matrix.arch }}
@@ -55,7 +83,11 @@ jobs:
       - name: Build
         uses: docker/build-push-action@v6
         with:
-          context: .
+          # The add-on folder, NOT the repo root -- that is what Supervisor
+          # uses. With `context: .` this job built fine while every real
+          # install failed on COPY paths that only resolve from the root: CI
+          # was testing a build nobody runs.
+          context: appletv_siri_bridge
           file: appletv_siri_bridge/Dockerfile
           build-args: BUILD_FROM=${{ steps.base.outputs.image }}
           platforms: ${{ matrix.platform }}
