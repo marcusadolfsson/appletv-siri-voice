@@ -15,7 +15,6 @@ arch:
   - aarch64
   - armv7
 init: false
-boot: auto
 startup: services
 
 # REQUIRED, not a preference. HomeKit finds and pairs accessories over mDNS on
