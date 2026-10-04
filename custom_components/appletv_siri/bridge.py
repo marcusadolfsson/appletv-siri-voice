@@ -78,14 +78,28 @@ class Bridge:
         return await self._request("post", path, data=audio)
 
     async def _request(self, method: str, path: str, **kw: Any) -> dict[str, Any]:
+        # A bounded timeout for everything except a streamed utterance, whose
+        # body lasts as long as the person talks. HA's shared session otherwise
+        # only has aiohttp's 300 s default, so a wedged bridge held a button
+        # press, a recover, or the coordinator's /state poll for five minutes.
+        if "timeout" not in kw and not path.startswith("/siri/stream"):
+            kw["timeout"] = aiohttp.ClientTimeout(total=10)
         try:
             async with self._session.request(method, f"{self._url}{path}", **kw) as resp:
-                body = await resp.json(content_type=None)
+                try:
+                    body = await resp.json(content_type=None)
+                except ValueError:
+                    # e.g. an HTML 502 from something in front of the bridge.
+                    body = {"error": (await resp.text())[:200]}
+                if not isinstance(body, dict):
+                    body = {"error": str(body)[:200]}
                 if resp.status == 503:
                     raise BridgeUnavailable(str(body.get("error", body)))
                 if resp.status >= 400:
                     raise BridgeError(f"{path} -> {resp.status}: {body}")
                 return body
+        except asyncio.TimeoutError as err:
+            raise BridgeError(f"bridge at {self._url} did not answer {path} in time") from err
         except aiohttp.ClientError as err:
             raise BridgeError(f"bridge unreachable at {self._url}: {err}") from err
 

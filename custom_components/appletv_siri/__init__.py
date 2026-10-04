@@ -133,8 +133,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         {"bridge": bridge, "conf": conf, "coordinator": coordinator, "entry_id": entry.entry_id}
     )
 
-    hass.http.register_view(SiriRemoteAudioView(hass, bridge, conf))
-    _register_services(hass, bridge, conf)
+    if not hass.data[DOMAIN].get("view_registered"):
+        hass.http.register_view(SiriRemoteAudioView(hass))
+        hass.data[DOMAIN]["view_registered"] = True
+    _register_services(hass)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_reload_on_change))
     return True
@@ -148,18 +150,30 @@ async def _reload_on_change(hass: HomeAssistant, entry: ConfigEntry) -> None:
     await hass.config_entries.async_reload(entry.entry_id)
 
 
-def _register_services(hass: HomeAssistant, bridge: Bridge, conf: dict[str, Any]) -> None:
-    """Services are global, so register them once."""
+def _register_services(hass: HomeAssistant) -> None:
+    """Services are global, so register them once.
+
+    The handlers look the bridge and conf up at call time for the same reason
+    the view does: registered once, they would otherwise keep the first
+    entry's bridge URL and tts_engine across every reload.
+    """
     if hass.services.has_service(DOMAIN, SERVICE_PRESS):
         return
 
+    def _current() -> tuple[Bridge, dict[str, Any]]:
+        data = hass.data[DOMAIN]
+        return data["bridge"], data["conf"]
+
     async def _press(call: ServiceCall) -> None:
+        bridge, _ = _current()
         await bridge.press(call.data[ATTR_BUTTON], call.data[ATTR_TARGET])
 
     async def _recover(call: ServiceCall) -> None:
+        bridge, _ = _current()
         await bridge.recover()
 
     async def _say(call: ServiceCall) -> None:
+        bridge, conf = _current()
         pcm = await _text_to_pcm(hass, call.data[ATTR_TEXT], conf.get(CONF_TTS_ENGINE))
         await bridge.speak(pcm, call.data[ATTR_TARGET])
 
@@ -241,10 +255,22 @@ class SiriRemoteAudioView(HomeAssistantView):
     name = f"api:{DOMAIN}:audio"
     requires_auth = True
 
-    def __init__(self, hass: HomeAssistant, bridge: Bridge, conf: dict[str, Any]) -> None:
+    def __init__(self, hass: HomeAssistant) -> None:
         self._hass = hass
-        self._bridge = bridge
-        self._conf = conf
+
+    # Read per request, not captured at construction. HA views cannot be
+    # unregistered, and registering a second one for the same URL on a reload
+    # left the FIRST still matching -- so after an options change (bridge URL,
+    # routing) audio kept going through the old Bridge and old conf until a
+    # restart. The view is registered once; the current entry's objects live
+    # in hass.data[DOMAIN], which every setup overwrites.
+    @property
+    def _bridge(self) -> Bridge:
+        return self._hass.data[DOMAIN]["bridge"]
+
+    @property
+    def _conf(self) -> dict[str, Any]:
+        return self._hass.data[DOMAIN]["conf"]
 
     def _known_urls(self) -> dict[str, str]:
         """The URLs that would have worked, for the error message."""
